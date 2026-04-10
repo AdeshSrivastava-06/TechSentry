@@ -24,8 +24,15 @@ from .services.opencorporates import search_companies as opencorporates_search_c
 from .services.patents import search_patents, get_patents_per_year, get_top_patent_assignees
 from .services.newsapi import search_news, get_news_volume, get_news_sentiment_analysis
 from .services.wikidata import search_companies, get_technology_companies
-from .services.groq_ai import generate_trl_assessment, generate_technology_summary, chat_response, generate_hype_cycle_position
-from .services.huggingface import extract_technology_convergence, analyze_sentiment, classify_trl_zeroshot
+from .services.huggingface import (
+    extract_technology_convergence,
+    analyze_sentiment,
+    classify_trl_zeroshot,
+    chat_response,
+    generate_trl_assessment,
+    generate_technology_summary,
+    generate_hype_cycle_position,
+)
 from .services.worldbank import get_top_rd_countries
 
 User = get_user_model()
@@ -452,7 +459,7 @@ def technology_profile(request):
         'companies': {'ok': False, 'source': 'opencorporates'},
         'news': {'ok': False, 'source': 'newsapi'},
         'worldbank': {'ok': False, 'source': 'worldbank'},
-        'trl': {'ok': False, 'source': 'groq'},
+        'trl': {'ok': False, 'source': 'huggingface'},
         'convergence': {'ok': False, 'source': 'huggingface'},
     }
 
@@ -933,16 +940,16 @@ def test_apis(request):
     except Exception as e:
         results["openalex"] = {"status": "error", "message": str(e)}
     
-    # Test Groq AI
+    # Test chatbot LLM (Hugging Face)
     try:
-        from .services.groq_ai import chat_response
-        groq_result = chat_response([{"role": "user", "content": "test"}])
-        results["groq"] = {
-            "status": "success" if groq_result.get("success") else "error",
-            "message": "Connected" if groq_result.get("success") else groq_result.get("error", "Unknown error")
+        from .services.huggingface import chat_response
+        hf_result = chat_response([{"role": "user", "content": "test"}])
+        results["huggingface_chat"] = {
+            "status": "success" if hf_result.get("success") else "error",
+            "message": "Connected" if hf_result.get("success") else hf_result.get("error", "Unknown error")
         }
     except Exception as e:
-        results["groq"] = {"status": "error", "message": str(e)}
+        results["huggingface_chat"] = {"status": "error", "message": str(e)}
     
     # Test NewsAPI
     try:
@@ -980,13 +987,16 @@ def chat_view(request):
         if not messages:
             return JsonResponse({"error": "No messages provided"}, status=400)
         
-        from .services.groq_ai import chat_response
         result = chat_response(messages)
         
         if result["success"]:
             return JsonResponse({"response": result["response"]})
         else:
-            return JsonResponse({"error": result["error"]}, status=500)
+            # Return a safe assistant fallback so chat UI keeps working on provider failures.
+            return JsonResponse({
+                "response": "Sorry, I am having trouble responding right now. Please try again in a moment.",
+                "error": result.get("error", "Chat service unavailable")
+            }, status=200)
     except json.JSONDecodeError:
         return JsonResponse({"error": "Invalid JSON"}, status=400)
     except Exception as e:

@@ -78,14 +78,36 @@ const Register = () => {
     
     setLoading(true)
     try {
-      await register({
-        name: formData.name,
+      const trimmedName = formData.name.trim()
+      const [firstName, ...rest] = trimmedName.split(/\s+/)
+      const lastName = rest.join(' ')
+
+      const result = await register({
         email: formData.email,
+        username: formData.email,
+        first_name: firstName || trimmedName,
+        last_name: lastName,
         organization: formData.organization,
-        password: formData.password
+        designation: 'Research Analyst',
+        research_domains: [],
+        password: formData.password,
+        password_confirm: formData.confirmPassword,
       })
-      toast.success('Registration successful! Welcome to TechSentry.')
-      navigate('/dashboard')
+
+      if (result?.success) {
+        toast.success('Registration successful! Welcome to TechSentry.')
+        navigate('/dashboard')
+      } else {
+        const apiError = result?.error
+        const firstKey = apiError && typeof apiError === 'object' ? Object.keys(apiError)[0] : null
+        const firstError = firstKey ? apiError[firstKey] : null
+        const message =
+          apiError?.message ||
+          apiError?.detail ||
+          (Array.isArray(firstError) ? firstError[0] : firstError) ||
+          'Registration failed. Please try again.'
+        toast.error(message)
+      }
     } catch (error) {
       toast.error(error.response?.data?.message || 'Registration failed. Please try again.')
     } finally {

@@ -112,7 +112,7 @@ export default function ChatBot() {
     } catch (err) {
       const errMsg =
         err.response?.data?.error ||
-        "Connection failed. Check GROQ_API_KEY in .env";
+        "Connection failed. Check HF_API_KEY (or HUGGINGFACE_API_KEY) in .env";
       setError(errMsg);
     } finally {
       setLoading(false);

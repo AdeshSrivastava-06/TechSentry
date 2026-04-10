@@ -25,7 +25,7 @@ A comprehensive technology intelligence and forecasting platform designed for de
 - Hype cycle positioning analysis
 
 ### 🤖 AI-Powered Insights
-- Groq LLM integration for TRL estimation
+- Hugging Face Inference integration for TRL estimation
 - Automated technology maturity assessment
 - Strategic brief generation
 - Conversational AI assistant with domain expertise
@@ -66,8 +66,7 @@ A comprehensive technology intelligence and forecasting platform designed for de
 
 ### External APIs
 - **OpenAlex** - Research papers and citations
-- **Groq AI** - LLM for insights and analysis
-- **HuggingFace** - NLP and entity recognition
+- **HuggingFace Inference API** - LLM chat, summaries, and NLP classification
 - **NewsAPI** - News and media monitoring
 - **SERP API** - Patent search
 - **World Bank** - R&D investment data
@@ -185,8 +184,9 @@ CORE_API_KEY=your-core-api-key
 SEMANTIC_SCHOLAR_KEY=your-semantic-scholar-key
 SERP_API_KEY=your-serp-api-key
 NEWS_API_KEY=your-newsapi-key
-GROQ_API_KEY=your-groq-api-key
 HUGGINGFACE_API_KEY=your-huggingface-key
+HF_API_KEY=your-huggingface-key
+HF_CHAT_MODEL=mistralai/Mistral-7B-Instruct-v0.2
 
 # Free APIs
 OPENALEX_EMAIL=your-email@gmail.com
@@ -225,7 +225,7 @@ CROSSREF_EMAIL=your-email@gmail.com
 - **Companies**: Organization data from Wikidata
 
 ### AI-Powered Analysis
-- Groq LLM for strategic insights and summaries
+- HuggingFace LLM for strategic insights and summaries
 - HuggingFace NLP for entity recognition and classification
 - Automated technology convergence detection
 - Sentiment analysis of news and research

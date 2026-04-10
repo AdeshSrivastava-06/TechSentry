@@ -51,9 +51,19 @@ const Login = () => {
     
     setLoading(true)
     try {
-      await login(formData.email, formData.password)
-      toast.success('Welcome back to TechSentry!')
-      navigate('/dashboard')
+      const result = await login(formData.email, formData.password)
+      if (result?.success) {
+        toast.success('Welcome back to TechSentry!')
+        navigate('/dashboard')
+      } else {
+        const apiError = result?.error
+        const message =
+          apiError?.message ||
+          apiError?.detail ||
+          (typeof apiError === 'string' ? apiError : null) ||
+          'Login failed. Please check your credentials.'
+        toast.error(message)
+      }
     } catch (error) {
       toast.error(error.response?.data?.message || 'Login failed. Please try again.')
     } finally {
