@@ -365,42 +365,158 @@ const Reports = () => {
     }
 
     const lines = content.split("\n");
+
+    const cleanInlineMarkdown = (text) => {
+      return text
+        .replace(/\*\*(.*?)\*\*/g, "$1")
+        .replace(/__(.*?)__/g, "$1")
+        .replace(/`([^`]+)`/g, "$1")
+        .trim();
+    };
+
+    const isTableRow = (line) => {
+      const trimmed = line.trim();
+      return (
+        trimmed.startsWith("|") &&
+        trimmed.endsWith("|") &&
+        trimmed.includes("|")
+      );
+    };
+
+    const isTableSeparator = (line) =>
+      /^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?$/.test(line.trim());
+
+    const rows = [];
+
+    for (let i = 0; i < lines.length; i += 1) {
+      const line = lines[i];
+      const trimmed = line.trim();
+
+      if (!trimmed) {
+        rows.push({ type: "spacer" });
+        continue;
+      }
+
+      // Markdown headings (#, ##, ###).
+      if (/^#{1,6}\s+/.test(trimmed)) {
+        const text = cleanInlineMarkdown(trimmed.replace(/^#{1,6}\s+/, ""));
+        rows.push({ type: "heading", text });
+        continue;
+      }
+
+      // Numbered section headings like "1. Executive Summary".
+      if (/^\d+\.\s+/.test(trimmed)) {
+        rows.push({ type: "heading", text: cleanInlineMarkdown(trimmed) });
+        continue;
+      }
+
+      // Parse markdown table blocks.
+      if (isTableRow(trimmed)) {
+        const tableRows = [];
+        while (i < lines.length && isTableRow(lines[i].trim())) {
+          const current = lines[i].trim();
+          if (!isTableSeparator(current)) {
+            const cells = current
+              .slice(1, -1)
+              .split("|")
+              .map((cell) => cleanInlineMarkdown(cell));
+            tableRows.push(cells);
+          }
+          i += 1;
+        }
+        i -= 1;
+
+        if (tableRows.length > 0) {
+          const [header, ...body] = tableRows;
+          rows.push({ type: "table", header, body });
+        }
+        continue;
+      }
+
+      if (/^[-*]\s+/.test(trimmed)) {
+        rows.push({
+          type: "bullet",
+          text: cleanInlineMarkdown(trimmed.replace(/^[-*]\s+/, "")),
+        });
+        continue;
+      }
+
+      rows.push({ type: "paragraph", text: cleanInlineMarkdown(trimmed) });
+    }
+
     return (
       <div className="space-y-2">
-        {lines.map((line, index) => {
-          const trimmed = line.trim();
-          if (!trimmed) {
-            return <div key={`line-${index}`} className="h-2" />;
+        {rows.map((row, index) => {
+          if (row.type === "spacer") {
+            return <div key={`row-${index}`} className="h-2" />;
           }
 
-          if (
-            !trimmed.startsWith("-") &&
-            /^([A-Z][A-Za-z\s]+)$/.test(trimmed)
-          ) {
+          if (row.type === "heading") {
             return (
               <h4
-                key={`line-${index}`}
+                key={`row-${index}`}
                 className="text-tech-text font-semibold text-base pt-2"
               >
-                {trimmed}
+                {row.text}
               </h4>
             );
           }
 
-          if (trimmed.startsWith("-")) {
+          if (row.type === "bullet") {
             return (
-              <p key={`line-${index}`} className="text-tech-muted pl-4">
-                {trimmed}
+              <p
+                key={`row-${index}`}
+                className="text-tech-muted pl-4 leading-relaxed"
+              >
+                • {row.text}
               </p>
             );
           }
 
+          if (row.type === "table") {
+            return (
+              <div
+                key={`row-${index}`}
+                className="overflow-x-auto rounded-md border border-tech-border/70"
+              >
+                <table className="min-w-full text-sm border-collapse mb-0">
+                  <thead className="bg-tech-surface/70">
+                    <tr>
+                      {row.header.map((cell, cellIndex) => (
+                        <th
+                          key={`head-${cellIndex}`}
+                          className="px-3 py-2 text-left text-tech-text font-semibold border-b border-tech-border/70"
+                        >
+                          {cell}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {row.body.map((cells, bodyIndex) => (
+                      <tr
+                        key={`body-${bodyIndex}`}
+                        className="odd:bg-tech-surface/20 even:bg-tech-surface/35"
+                      >
+                        {cells.map((cell, cellIndex) => (
+                          <td
+                            key={`cell-${bodyIndex}-${cellIndex}`}
+                            className="px-3 py-2 text-tech-muted border-b border-tech-border/40 align-top"
+                          >
+                            {cell || "-"}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            );
+          }
+
           return (
-            <p
-              key={`line-${index}`}
-              className="text-tech-muted leading-relaxed"
-            >
-              {trimmed}
+            <p key={`row-${index}`} className="text-tech-muted leading-relaxed">
+              {row.text}
             </p>
           );
         })}
@@ -496,10 +612,10 @@ const Reports = () => {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-orbitron font-bold text-tech-text mb-2">
+          <h1 className="text-3xl font-orbitron font-bold text-slate-900 mb-2">
             Intelligence Reports
           </h1>
-          <p className="text-tech-muted">
+          <p className="text-slate-600">
             Generated technology analysis reports and briefings
           </p>
         </div>
