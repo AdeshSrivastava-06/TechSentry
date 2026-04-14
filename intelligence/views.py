@@ -23,7 +23,10 @@ from .services.crossref import search_papers as crossref_search_papers, get_pape
 from .services.opencorporates import search_companies as opencorporates_search_companies
 from .services.patents import search_patents, get_patents_per_year, get_top_patent_assignees
 from .services.newsapi import search_news, get_news_volume, get_news_sentiment_analysis
-from .services.wikidata import search_companies, get_technology_companies
+from .services.wikidata import (
+    search_companies as wikidata_search_companies,
+    get_technology_companies as wikidata_get_technology_companies,
+)
 from .services.huggingface import (
     extract_technology_convergence,
     analyze_sentiment,
@@ -36,6 +39,102 @@ from .services.huggingface import (
 from .services.worldbank import get_top_rd_countries
 
 User = get_user_model()
+
+
+def _normalize_wikidata_company_results(payload):
+    """Convert Wikidata SPARQL response into frontend-compatible company cards."""
+    if not isinstance(payload, dict):
+        return []
+
+    # SPARQL format
+    bindings = (payload.get('results') or {}).get('bindings', [])
+    if bindings:
+        companies = []
+        for idx, row in enumerate(bindings):
+            company_uri = ((row.get('company') or {}).get('value') or '').strip()
+            company_name = ((row.get('companyLabel') or {}).get('value') or '').strip()
+            country_name = ((row.get('countryLabel') or {}).get('value') or '').strip()
+            industry_name = ((row.get('industryLabel') or {}).get('value') or '').strip()
+            founded_raw = ((row.get('founded') or {}).get('value') or '').strip()
+
+            if not company_name:
+                continue
+
+            company_id = company_uri.rsplit('/', 1)[-1] if company_uri else f'wikidata-{idx}'
+            companies.append(
+                {
+                    'id': f'wikidata-{company_id}',
+                    'name': company_name,
+                    'companyLabel': {'value': company_name},
+                    'countryLabel': {'value': country_name},
+                    'description': f'Industry: {industry_name}' if industry_name else '',
+                    'incorporation_date': founded_raw[:10] if founded_raw else '',
+                    'source': 'wikidata',
+                }
+            )
+
+        return companies
+
+    # wbsearchentities format
+    entities = payload.get('search', [])
+    companies = []
+    business_terms = (
+        'company',
+        'corporation',
+        'business',
+        'enterprise',
+        'manufacturer',
+        'firm',
+        'startup',
+        'technology company',
+    )
+    for idx, entity in enumerate(entities):
+        label = (entity.get('label') or '').strip()
+        if not label:
+            continue
+        description = (entity.get('description') or '').strip()
+        description_l = description.lower()
+        if description and not any(term in description_l for term in business_terms):
+            continue
+        entity_id = (entity.get('id') or f'entity-{idx}').strip()
+        companies.append(
+            {
+                'id': f'wikidata-{entity_id}',
+                'name': label,
+                'companyLabel': {'value': label},
+                'countryLabel': {'value': ''},
+                'description': description,
+                'incorporation_date': '',
+                'source': 'wikidata',
+            }
+        )
+
+    return companies
+
+
+def _merge_companies(primary_list, secondary_list, limit=50):
+    """Merge companies by normalized name while preserving first-source details."""
+    merged = []
+    seen = set()
+
+    def _name_key(item):
+        name = (
+            ((item.get('companyLabel') or {}).get('value'))
+            or item.get('name')
+            or ''
+        )
+        return str(name).strip().lower()
+
+    for item in (primary_list or []) + (secondary_list or []):
+        key = _name_key(item)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        merged.append(item)
+        if len(merged) >= limit:
+            break
+
+    return merged
 
 @api_view(['GET'])
 @permission_classes([permissions.AllowAny])
@@ -350,8 +449,8 @@ def search(request):
     
     query = request.GET.get('q', '')
     source_type = request.GET.get('type', 'all')
-    year_from = request.GET.get('year_from', '2000')
-    year_to = request.GET.get('year_to', str(CURRENT_YEAR))
+    year_from = int(request.GET.get('year_from', '2000'))
+    year_to = int(request.GET.get('year_to', str(CURRENT_YEAR)))
     sort_by = request.GET.get('sort_by', 'relevance')
     paper_keywords = request.GET.get('paper_keywords', '')
     page = int(request.GET.get('page', 1))
@@ -388,9 +487,20 @@ def search(request):
             patents_data = search_patents(query, num=10)
 
             patents_results = patents_data.get('results', [])
+            
+            # Filter patents by year - extract year from publication_date or filing_date
+            def extract_patent_year(patent_date_str):
+                """Extract year from date string like '2024-01-15' or '2024'"""
+                if not patent_date_str:
+                    return CURRENT_YEAR
+                match = re.search(r'(19|20)\d{2}', str(patent_date_str))
+                if match:
+                    return int(match.group(0))
+                return CURRENT_YEAR
+            
             patents_results = [
                 p for p in patents_results
-                if year_from <= (extract_year(p.get('publication_date') or p.get('filing_date')) or CURRENT_YEAR) <= year_to
+                if year_from <= extract_patent_year(p.get('publication_date') or p.get('filing_date')) <= year_to
             ]
 
             results['patents'] = patents_results
@@ -406,13 +516,43 @@ def search(request):
                 results['news'] = []
         
         if source_type in ['all', 'companies']:
+            companies_open = []
+            companies_wikidata = []
+
             try:
-                companies_data = opencorporates_search_companies(query)
-                results['companies'] = companies_data
-                logger.info(f"Companies found: {len(results['companies'])}")
+                companies_open = opencorporates_search_companies(query, page=1, num=25) or []
             except Exception as e:
-                logger.error(f"Companies search error: {e}")
-                results['companies'] = []
+                logger.error(f"OpenCorporates search error: {e}")
+
+            try:
+                wikidata_payload = wikidata_get_technology_companies(query, limit=25)
+                companies_wikidata = _normalize_wikidata_company_results(wikidata_payload)
+            except Exception as e:
+                logger.error(f"Wikidata company search error: {e}")
+
+            merged_companies = _merge_companies(companies_open, companies_wikidata, limit=50)
+            results['companies'] = merged_companies
+            results['companies_sources'] = {
+                'opencorporates': len(companies_open),
+                'wikidata': len(companies_wikidata),
+                'merged': len(merged_companies),
+            }
+
+            # Keep backend-only context available for company intelligence screens.
+            try:
+                rd_data = get_top_rd_countries(limit=10, technology=query)
+                if isinstance(rd_data, dict) and rd_data.get('success'):
+                    results['worldbank'] = {
+                        'top_countries': rd_data.get('countries', []),
+                        'source': 'worldbank',
+                    }
+            except Exception as e:
+                logger.error(f"World Bank fetch error in search: {e}")
+
+            logger.info(
+                f"Companies found: merged={len(results['companies'])}, "
+                f"open={len(companies_open)}, wikidata={len(companies_wikidata)}"
+            )
         
         return Response(results)
     
@@ -495,10 +635,26 @@ def technology_profile(request):
     except Exception as e:
         source_status['news']['error'] = str(e)
 
-    # Companies (OpenCorporates)
+    # Companies (OpenCorporates + Wikidata)
     try:
-        companies = opencorporates_search_companies(query, page=1, num=50) or []
-        source_status['companies']['ok'] = True
+        open_companies = opencorporates_search_companies(query, page=1, num=50) or []
+
+        wikidata_companies = []
+        try:
+            wikidata_companies = _normalize_wikidata_company_results(
+                wikidata_search_companies(query, limit=30)
+            )
+        except Exception as wikidata_error:
+            source_status['companies']['wikidata_error'] = str(wikidata_error)
+
+        companies = _merge_companies(open_companies, wikidata_companies, limit=50)
+        source_status['companies']['ok'] = len(companies) > 0
+        source_status['companies']['source'] = 'opencorporates+wikidata'
+        source_status['companies']['counts'] = {
+            'opencorporates': len(open_companies),
+            'wikidata': len(wikidata_companies),
+            'merged': len(companies),
+        }
     except Exception as e:
         source_status['companies']['error'] = str(e)
 
@@ -965,10 +1121,13 @@ def test_apis(request):
     # Test SERP Patents
     try:
         from .services.patents import search_patents
-        patents_result = search_patents("quantum", num=10)
+        patents_result = search_patents("quantum computing", num=10)
         results["serp_patents"] = {
             "status": "success" if patents_result.get("success") else "error",
-            "message": "Connected" if patents_result.get("success") else patents_result.get("error", "Unknown error")
+            "message": "Connected" if patents_result.get("success") else patents_result.get("error", "Unknown error"),
+            "source": patents_result.get("source", "unknown"),
+            "results_count": len(patents_result.get("results", [])),
+            "warning": patents_result.get("warning", "")
         }
     except Exception as e:
         results["serp_patents"] = {"status": "error", "message": str(e)}

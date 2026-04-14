@@ -131,8 +131,12 @@ const SearchPage = () => {
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      className="bg-white/70 backdrop-blur-xl rounded-xl shadow-lg border border-white/20 p-6 mb-4 hover:shadow-xl transition-all duration-300"
-      onClick={() => navigate(`/patent/${patent.id}`)}
+      className="bg-white/70 backdrop-blur-xl rounded-xl shadow-lg border border-white/20 p-6 mb-4 hover:shadow-xl transition-all duration-300 cursor-pointer"
+      onClick={() => {
+        if (patent.url) {
+          window.open(patent.url, '_blank')
+        }
+      }}
     >
       <div className="flex items-start justify-between mb-3">
         <h3 className="text-lg font-semibold text-gray-900 flex-1 mr-4 line-clamp-2">
@@ -156,10 +160,29 @@ const SearchPage = () => {
         )}
       </div>
       
+      {patent.patent_number && (
+        <p className="text-gray-600 text-sm mb-2 font-mono">
+          Patent: {patent.patent_number}
+        </p>
+      )}
+      
       {patent.abstract && (
-        <p className="text-gray-700 text-sm line-clamp-3">
+        <p className="text-gray-700 text-sm line-clamp-3 mb-3">
           {patent.abstract}
         </p>
+      )}
+      
+      {patent.url && (
+        <a
+          href={patent.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 text-indigo-600 hover:text-indigo-700 text-sm font-medium transition-colors"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <ExternalLink className="w-3 h-3" />
+          View Patent
+        </a>
       )}
     </motion.div>
   )

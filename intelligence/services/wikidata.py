@@ -3,29 +3,23 @@ from django.conf import settings
 import json
 
 def search_companies(query, limit=5):
-    sparql_query = f"""
-    SELECT ?company ?companyLabel ?countryLabel ?industryLabel ?founded ?description WHERE {{
-      ?company wdt:P31 wd:Q6881511;  # Instance of business enterprise
-                rdfs:label ?companyLabel;
-                wdt:P17 ?country;
-                wdt:P452 ?industry;
-                wdt:P571 ?founded.
-      FILTER(LANG(?companyLabel) = "en")
-      FILTER(LANG(?countryLabel) = "en")
-      FILTER(LANG(?industryLabel) = "en")
-      FILTER(CONTAINS(LCASE(?companyLabel), LCASE("{query}")))
-      SERVICE wikibase:label {{ bd:serviceParam wikibase:language "en". }}
-    }}
-    LIMIT {limit}
-    """
-    
-    url = settings.WIKIDATA_SPARQL
+  """Search entities in Wikidata using stable wbsearchentities endpoint."""
+  try:
+    url = "https://www.wikidata.org/w/api.php"
     params = {
-        "query": sparql_query,
-        "format": "json"
+      "action": "wbsearchentities",
+      "search": query,
+      "language": "en",
+      "format": "json",
+      "limit": max(1, int(limit)),
+      "type": "item",
     }
-    response = requests.get(url, params=params)
+    headers = {"User-Agent": "TechSentry/1.0 (company-search)"}
+    response = requests.get(url, params=params, headers=headers, timeout=15)
+    response.raise_for_status()
     return response.json()
+  except Exception as e:
+    return {"search": [], "error": str(e)}
 
 def get_company_details(company_name):
     # Escape the company name for SPARQL
@@ -57,28 +51,5 @@ def get_company_details(company_name):
     return response.json()
 
 def get_technology_companies(technology_query, limit=10):
-    # Escape the query for SPARQL
-    escaped_query = technology_query.replace('"', '\\"')
-    
-    sparql_query = f"""
-    SELECT ?company ?companyLabel ?countryLabel ?industryLabel ?founded WHERE {{
-      ?company wdt:P31 wd:Q6881511;
-                rdfs:label ?companyLabel;
-                wdt:P17 ?country;
-                wdt:P452 ?industry;
-                wdt:P571 ?founded.
-      FILTER(LANG(?companyLabel) = "en")
-      FILTER(CONTAINS(LCASE(?companyLabel), LCASE("{escaped_query}")) ||
-              CONTAINS(LCASE(?industryLabel), LCASE("{escaped_query}")))
-      SERVICE wikibase:label {{ bd:serviceParam wikibase:language "en". }}
-    }}
-    LIMIT {limit}
-    """
-    
-    url = settings.WIKIDATA_SPARQL
-    params = {
-        "query": sparql_query,
-        "format": "json"
-    }
-    response = requests.get(url, params=params)
-    return response.json()
+  """Return technology-related company/entity candidates from Wikidata."""
+  return search_companies(technology_query, limit=limit)

@@ -36,16 +36,19 @@ def _search_patents_patentsview(query, num=10):
         data = r.json() if r.content else {}
 
         patents = []
-        for p in data.get("patents", []) or []:
+        for idx, p in enumerate(data.get("patents", []) or []):
             patent_number = p.get("patent_number", "")
+            filing_date = p.get("patent_date", "")
             patents.append(
                 {
+                    "id": f"{patent_number}_{idx}" if patent_number else f"patent_{idx}",
                     "title": p.get("patent_title", ""),
                     "patent_number": patent_number,
+                    "patent_id": patent_number,
                     "assignee": p.get("assignee_organization", ""),
-                    "filing_date": p.get("patent_date", ""),
-                    "publication_date": p.get("patent_date", ""),
-                    "country": (str(patent_number)[:2] if patent_number else ""),
+                    "filing_date": filing_date,
+                    "publication_date": filing_date,
+                    "country": (str(patent_number)[:2] if patent_number else "US"),
                     "abstract": p.get("patent_abstract", ""),
                     "url": _build_google_patent_url(patent_number),
                     "inventor": "",
@@ -70,22 +73,33 @@ def _get_serp_api_key():
 
 
 def _parse_serp_patents(data):
-    # SerpAPI can return results under different keys depending on engine/version.
-    rows = data.get("organic_results") or data.get("patents_results") or []
+    # SerpAPI Google Patents returns results under 'patents_results' key
+    rows = data.get("patents_results") or data.get("organic_results") or []
     patents = []
-    for p in rows:
-        patent_number = p.get("patent_number", p.get("patent_id", ""))
+    for idx, p in enumerate(rows):
+        # SERP API uses 'patent_id' for Google Patents engine
+        patent_number = p.get("patent_id", p.get("patent_number", ""))
+        # Extract URL from various possible fields
+        url = p.get("patent_url") or p.get("link") or p.get("pdf") or ""
+        if not url and patent_number:
+            url = _build_google_patent_url(patent_number)
+        
+        # Ensure we have a valid date for filtering
+        pub_date = p.get("publication_date", "")
+        filing_date = p.get("filing_date", "")
+        
         patents.append(
             {
+                "id": f"{patent_number}_{idx}" if patent_number else f"patent_{idx}",
                 "title": p.get("title", ""),
                 "patent_number": patent_number,
+                "patent_id": patent_number,  # For compatibility
                 "assignee": p.get("assignee", ""),
-                "filing_date": p.get("filing_date", ""),
-                "publication_date": p.get("publication_date", ""),
-                "country": p.get("country", ""),
-                "abstract": p.get("snippet", ""),
-                "url": p.get("pdf", p.get("link", ""))
-                or _build_google_patent_url(patent_number),
+                "filing_date": filing_date,
+                "publication_date": pub_date or filing_date or "",
+                "country": p.get("country", "US"),
+                "abstract": p.get("snippet", p.get("abstract", "")),
+                "url": url,
                 "inventor": p.get("inventor", ""),
             }
         )
@@ -124,17 +138,21 @@ def _generate_local_patent_fallback(query, num=10):
         idx = i % len(templates)
         number = f"US{year - (i % 6)}{100000 + i}A1"
         pub_year = year - (i % 6)
+        filing_date = f"{pub_year - 1}-09-15"
+        pub_date = f"{pub_year}-04-10"
         results.append(
             {
+                "id": f"local_patent_{i}",
                 "title": templates[idx].format(q=q_title),
                 "patent_number": number,
+                "patent_id": number,
                 "assignee": assignees[i % len(assignees)],
-                "filing_date": f"{pub_year - 1}-09-15",
-                "publication_date": f"{pub_year}-04-10",
+                "filing_date": filing_date,
+                "publication_date": pub_date,
                 "country": "US",
                 "abstract": (
-                    f"Fallback patent entry for {q_title}. Generated locally because external patent providers "
-                    "were unavailable at request time."
+                    f"Local fallback patent for {q_title}. Generated because external patent providers "
+                    "were unavailable at request time. This is sample data for demonstration."
                 ),
                 "url": _build_google_patent_url(number),
                 "inventor": "Team TechSentry",
@@ -149,8 +167,13 @@ def _generate_local_patent_fallback(query, num=10):
     }
 
 def search_patents(query, num=10):
+    """
+    Search for patents using SERP API (Google Patents).
+    Falls back to PatentsView API if SERP fails, then local fallback.
+    """
     api_key = _get_serp_api_key()
     if not api_key:
+        print("No SERP API key configured. Falling back to PatentsView.")
         fallback = _search_patents_patentsview(query, num=num)
         if fallback.get("success") and fallback.get("results"):
             return fallback
@@ -163,7 +186,9 @@ def search_patents(query, num=10):
         "api_key": api_key,
         "num": num
     }
+    
     try:
+        print(f"Searching SERP API for patents: query='{query}', num={num}")
         r = requests.get(url, params=params, timeout=15)
         data = r.json() if r.content else {}
 
@@ -174,12 +199,22 @@ def search_patents(query, num=10):
         if isinstance(data, dict) and data.get("error"):
             raise RuntimeError(data.get("error"))
 
+        # Debug: print response keys
+        if isinstance(data, dict):
+            print(f"SERP API response keys: {list(data.keys())}")
+            if "patents_results" in data:
+                print(f"Found {len(data.get('patents_results', []))} patent results")
+            if "organic_results" in data:
+                print(f"Found {len(data.get('organic_results', []))} organic results")
+
         patents = _parse_serp_patents(data)
 
         if patents:
+            print(f"Successfully parsed {len(patents)} patents from SERP API")
             return {"success": True, "results": patents, "source": "serpapi_google_patents"}
 
         # SerpAPI responded but no results, fallback to PatentsView.
+        print("No patent results from SERP API. Trying PatentsView fallback.")
         fallback = _search_patents_patentsview(query, num=num)
         if fallback.get("success") and fallback.get("results"):
             return fallback
@@ -191,12 +226,16 @@ def search_patents(query, num=10):
 
         fallback = _search_patents_patentsview(query, num=num)
         if fallback.get("success") and fallback.get("results"):
+            print(f"Using PatentsView fallback after SERP error: {len(fallback.get('results', []))} results")
             return fallback
+        
         local = _generate_local_patent_fallback(query, num=num)
         local["warning"] = f"SerpAPI failed: {error_message}. Using local fallback results."
+        print(f"Using local fallback after all APIs failed. Warning: {local['warning']}")
         return local
 
 def get_patents_per_year(query, years=10):
+    """Get patent filing trends by year using SERP API."""
     api_key = _get_serp_api_key()
     if not api_key:
         current_year = datetime.now().year
@@ -210,9 +249,9 @@ def get_patents_per_year(query, years=10):
     
     url = "https://serpapi.com/search"
     data = {}
-    
-    from datetime import datetime
     current_year = datetime.now().year
+    
+    print(f"Getting patent trends for '{query}' over {years} years")
     
     for year in range(current_year - years, current_year + 1):
         params = {
@@ -225,15 +264,20 @@ def get_patents_per_year(query, years=10):
             r = requests.get(url, params=params, timeout=10)
             if r.status_code == 200:
                 result = r.json()
-                data[year] = len(result.get("organic_results", []))
+                # Try patents_results first (correct for Google Patents), then organic_results
+                patent_count = len(result.get("patents_results", result.get("organic_results", [])))
+                data[year] = patent_count
+                print(f"Year {year}: {patent_count} patents found")
             else:
                 data[year] = 0
-        except:
+        except Exception as e:
+            print(f"Error fetching patents for {year}: {e}")
             data[year] = 0
     
-    return {"success": True, "data": data}
+    return {"success": True, "data": data, "source": "serpapi_google_patents"}
 
 def get_top_patent_assignees(query, limit=10):
+    """Get top patent assignees/companies using SERP API."""
     api_key = _get_serp_api_key()
     if not api_key:
         fallback = _generate_local_patent_fallback(query, num=max(5, limit * 2))
@@ -257,21 +301,29 @@ def get_top_patent_assignees(query, limit=10):
         "num": 100
     }
     try:
+        print(f"Fetching top assignees for '{query}' (limit: {limit})")
         r = requests.get(url, params=params, timeout=15)
         r.raise_for_status()
         data = r.json()
         
+        # Try patents_results first (correct for Google Patents), then organic_results
+        patent_list = data.get("patents_results", data.get("organic_results", []))
+        print(f"Found {len(patent_list)} patents, extracting assignees")
+        
         assignees = {}
-        for patent in data.get("organic_results", []):
+        for patent in patent_list:
             assignee = patent.get("assignee", "Unknown")
-            if assignee in assignees:
-                assignees[assignee] += 1
-            else:
-                assignees[assignee] = 1
+            if assignee and assignee != "Unknown":
+                assignees[assignee] = assignees.get(assignee, 0) + 1
         
         # Sort by count and return top limit
         sorted_assignees = sorted(assignees.items(), key=lambda x: x[1], reverse=True)[:limit]
-        return {"success": True, "assignees": dict(sorted_assignees)}
+        print(f"Top assignees found: {len(sorted_assignees)}")
+        return {
+            "success": True,
+            "assignees": dict(sorted_assignees),
+            "source": "serpapi_google_patents"
+        }
     except Exception as e:
         print(f"SERP Assignees Error: {e}")
         return {"success": False, "error": str(e), "assignees": {}}
