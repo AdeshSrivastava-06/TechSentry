@@ -11,12 +11,12 @@ HF_API_KEY = (
     or getattr(settings, 'HUGGINGFACE_API_KEY', None)
     or os.getenv('HUGGINGFACE_API_KEY')
 )
-HF_CHAT_MODEL = getattr(settings, 'HF_CHAT_MODEL', None) or os.getenv('HF_CHAT_MODEL') or 'openai/gpt-oss-120b:fastest'
+HF_CHAT_MODEL = getattr(settings, 'HF_CHAT_MODEL', None) or os.getenv('HF_CHAT_MODEL') or 'zai-org/GLM-5.1:cheapest'
 HF_CHAT_FALLBACK_MODELS = [
-    'openai/gpt-oss-120b:fastest',
-    'openai/gpt-oss-20b:fastest',
-    'mistralai/Mistral-7B-Instruct-v0.2',
-    'HuggingFaceH4/zephyr-7b-beta',
+    'zai-org/GLM-5.1:cheapest',
+    'openai/gpt-oss-20b:cheapest',
+    'openai/gpt-oss-120b:cheapest',
+    'meta-llama/Llama-3.1-8B-Instruct:fastest',
 ]
 HF_CHAT_COMPLETIONS_URL = getattr(settings, 'HF_CHAT_COMPLETIONS_URL', None) or os.getenv('HF_CHAT_COMPLETIONS_URL') or 'https://router.huggingface.co/v1/chat/completions'
 
@@ -66,18 +66,25 @@ def _run_text_generation(prompt: str, temperature: float = 0.7, max_new_tokens: 
 
                 if response.status_code == 200:
                     generated_text = ""
+                    finish_reason = None
                     if isinstance(data, dict):
                         choices = data.get("choices", [])
                         if choices and isinstance(choices[0], dict):
                             message = choices[0].get("message", {})
                             generated_text = message.get("content", "")
+                            finish_reason = choices[0].get("finish_reason")
 
                     if not generated_text and isinstance(data, list) and data and isinstance(data[0], dict):
                         generated_text = data[0].get("generated_text") or data[0].get("summary_text") or ""
 
                     generated_text = str(generated_text).strip()
                     if generated_text:
-                        return {"success": True, "text": generated_text, "model": active_model}
+                        return {
+                            "success": True,
+                            "text": generated_text,
+                            "model": active_model,
+                            "finish_reason": finish_reason,
+                        }
 
                     last_error = f"Empty response from model {active_model}"
                     break
@@ -90,6 +97,10 @@ def _run_text_generation(prompt: str, temperature: float = 0.7, max_new_tokens: 
 
                 if response.status_code == 429:
                     last_error = "Hugging Face rate limit reached on free tier. Please retry shortly."
+                    break
+
+                if response.status_code == 402:
+                    last_error = "Hugging Face included credits are depleted for this token. Add credits or use a different token/provider."
                     break
 
                 if isinstance(data, dict):
@@ -142,14 +153,66 @@ def chat_response(messages: list):
         # Keep prompt shaping close to previous behavior while matching HF payload format.
         prompt = (
             "You are TechSentry AI, a senior defence technology intelligence analyst. "
-            "Provide practical, structured, concise guidance with assumptions when uncertain.\n\n"
+            "Provide practical, structured, concise guidance with assumptions when uncertain. "
+            "Avoid oversized markdown tables unless explicitly requested. Always end with a complete final sentence.\n\n"
             f"User: {user_message}\nAssistant:"
         )
-        result = _run_text_generation(prompt, temperature=0.7, max_new_tokens=200, model=HF_CHAT_MODEL)
+        result = _run_text_generation(prompt, temperature=0.7, max_new_tokens=700, model=HF_CHAT_MODEL)
         if not result.get("success"):
             return {"success": False, "error": result.get("error", "Chat generation failed")}
 
-        return {"success": True, "response": result.get("text", "")}
+        response_text = result.get("text", "")
+        finish_reason = result.get("finish_reason")
+
+        # Continue in bounded passes until the answer appears complete.
+        passes = 0
+        while _looks_incomplete(response_text, finish_reason) and passes < 3:
+            continuation_prompt = (
+                f"Original request:\n{user_message}\n\n"
+                f"Partial assistant answer:\n{response_text}\n\n"
+                "Continue exactly where this stopped. Do not repeat prior lines. "
+                "Close any unfinished bullets/sections and end with one complete concluding sentence."
+            )
+            continuation = _run_text_generation(
+                continuation_prompt,
+                temperature=0.6,
+                max_new_tokens=300,
+                model=result.get("model") or HF_CHAT_MODEL,
+            )
+            if not continuation.get("success") or not continuation.get("text"):
+                break
+
+            response_text = f"{response_text}\n\n{continuation.get('text')}".strip()
+            finish_reason = continuation.get("finish_reason")
+            passes += 1
+
+        # Last-resort recovery: regenerate a concise complete answer from scratch.
+        if _looks_incomplete(response_text, finish_reason):
+            recovery_prompt = (
+                f"User request:\n{user_message}\n\n"
+                "Provide a complete, concise answer in 5-8 bullet points and a final concluding sentence. "
+                "Do not use markdown tables. Ensure the final line is a complete sentence ending with punctuation."
+            )
+            recovery = _run_text_generation(
+                recovery_prompt,
+                temperature=0.5,
+                max_new_tokens=450,
+                model=result.get("model") or HF_CHAT_MODEL,
+            )
+            if recovery.get("success") and recovery.get("text"):
+                recovered_text = recovery.get("text", "").strip()
+                if _looks_incomplete(recovered_text, recovery.get("finish_reason")):
+                    recovered_text = f"{recovered_text.rstrip('. ')}."
+                response_text = recovered_text
+
+        # Final guard: never return visibly cut-off output to the UI.
+        if _looks_incomplete(response_text, finish_reason):
+            response_text = (
+                "I could not complete the full answer in this request due provider limits. "
+                "Please retry once, and if it persists, switch to a supported Hugging Face model/provider with available credits."
+            )
+
+        return {"success": True, "response": response_text}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -167,6 +230,28 @@ def _extract_json_object(text: str):
             return json.loads(match.group(0))
         except Exception:
             return None
+
+
+def _looks_incomplete(text: str, finish_reason: str = None):
+    """Heuristic check for semantically cut-off assistant responses."""
+    if not text or not str(text).strip():
+        return True
+
+    if finish_reason == "length":
+        return True
+
+    trimmed = str(text).rstrip()
+
+    if trimmed.endswith((":", "-", "•", "|", "(", "[", "{", "/", "…")):
+        return True
+
+    if trimmed.count("```") % 2 != 0:
+        return True
+
+    if trimmed[-1].isalnum():
+        return True
+
+    return False
 
 
 def generate_trl_assessment(abstracts: list, technology: str):
