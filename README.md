@@ -29,7 +29,7 @@ A comprehensive technology intelligence and forecasting platform designed for de
 - Automated technology maturity assessment
 - Strategic brief generation
 - Conversational AI assistant with domain expertise
-- Real-time chat with conversation history
+- Real-time Chat with conversation history
 
 ### 📈 Data Visualization
 - Interactive charts using Recharts
