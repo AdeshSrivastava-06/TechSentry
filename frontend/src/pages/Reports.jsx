@@ -14,6 +14,7 @@ import {
   BookOpen,
 } from "lucide-react";
 import toast from "react-hot-toast";
+import { logActivity } from "../utils/activityLog";
 
 const Reports = () => {
   const LOCAL_REPORTS_KEY = "techsentry_local_reports";
@@ -193,6 +194,13 @@ const Reports = () => {
     },
     onSuccess: (result) => {
       queryClient.invalidateQueries(["reports"]);
+      const technologyName = String(result?.data?.technology || "").trim();
+      if (technologyName) {
+        logActivity({
+          type: "report",
+          description: `Generated report for "${technologyName}"`,
+        });
+      }
       setShowGenerateModal(false);
       setNewReport({
         technology: "",
@@ -455,7 +463,7 @@ const Reports = () => {
             return (
               <h4
                 key={`row-${index}`}
-                className="text-tech-text font-semibold text-base pt-2"
+                className="text-sky-200 font-semibold text-base pt-2"
               >
                 {row.text}
               </h4>
@@ -466,7 +474,7 @@ const Reports = () => {
             return (
               <p
                 key={`row-${index}`}
-                className="text-tech-muted pl-4 leading-relaxed"
+                className="text-slate-200 pl-4 leading-relaxed"
               >
                 • {row.text}
               </p>
@@ -480,12 +488,12 @@ const Reports = () => {
                 className="overflow-x-auto rounded-md border border-tech-border/70"
               >
                 <table className="min-w-full text-sm border-collapse mb-0">
-                  <thead className="bg-tech-surface/70">
+                  <thead className="bg-slate-900/70">
                     <tr>
                       {row.header.map((cell, cellIndex) => (
                         <th
                           key={`head-${cellIndex}`}
-                          className="px-3 py-2 text-left text-tech-text font-semibold border-b border-tech-border/70"
+                          className="px-3 py-2 text-left text-sky-100 font-semibold border-b border-sky-900/60"
                         >
                           {cell}
                         </th>
@@ -496,12 +504,12 @@ const Reports = () => {
                     {row.body.map((cells, bodyIndex) => (
                       <tr
                         key={`body-${bodyIndex}`}
-                        className="odd:bg-tech-surface/20 even:bg-tech-surface/35"
+                        className="odd:bg-slate-950/35 even:bg-slate-900/45"
                       >
                         {cells.map((cell, cellIndex) => (
                           <td
                             key={`cell-${bodyIndex}-${cellIndex}`}
-                            className="px-3 py-2 text-tech-muted border-b border-tech-border/40 align-top"
+                            className="px-3 py-2 text-slate-200 border-b border-slate-800/70 align-top"
                           >
                             {cell || "-"}
                           </td>
@@ -515,7 +523,7 @@ const Reports = () => {
           }
 
           return (
-            <p key={`row-${index}`} className="text-tech-muted leading-relaxed">
+            <p key={`row-${index}`} className="text-slate-200 leading-relaxed">
               {row.text}
             </p>
           );
@@ -674,15 +682,15 @@ const Reports = () => {
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="tech-card max-w-3xl w-full max-h-[85vh] overflow-auto"
+            className="max-w-3xl w-full max-h-[85vh] overflow-auto bg-slate-950/95 border border-sky-900/50 rounded-xl p-6 shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-start justify-between gap-4 mb-4">
               <div>
-                <h2 className="text-2xl font-orbitron font-bold text-tech-text">
+                <h2 className="text-2xl font-orbitron font-bold text-slate-100">
                   {selectedReport.title}
                 </h2>
-                <div className="text-sm text-tech-muted mt-1">
+                <div className="text-sm text-slate-300 mt-1">
                   {selectedReport.technology} |{" "}
                   {formatDate(selectedReport.created_at)} |{" "}
                   {getEffectiveWordCount(selectedReport)} words
@@ -697,18 +705,18 @@ const Reports = () => {
             </div>
 
             {isEditingReport ? (
-              <div className="border border-tech-border rounded-lg p-4 bg-tech-surface/40">
-                <label className="block text-sm font-medium text-tech-text mb-2">
+              <div className="border border-slate-700 rounded-lg p-4 bg-slate-900/70">
+                <label className="block text-sm font-medium text-slate-100 mb-2">
                   Edit Report Content
                 </label>
                 <textarea
                   value={editContentDraft}
                   onChange={(e) => setEditContentDraft(e.target.value)}
-                  className="tech-input min-h-[300px] resize-y"
+                  className="w-full min-h-[300px] resize-y rounded-lg border border-slate-700 bg-slate-950/80 px-3 py-2 text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-600"
                 />
               </div>
             ) : (
-              <div className="border border-tech-border rounded-lg p-4 bg-tech-surface/40">
+              <div className="border border-slate-700 rounded-lg p-4 bg-slate-900/70">
                 {renderReportContent(getEffectiveContent(selectedReport))}
               </div>
             )}

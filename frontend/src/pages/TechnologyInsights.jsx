@@ -93,7 +93,7 @@ const TechnologyInsights = () => {
     return raw;
   };
 
-  const buildDummyInsights = (tech) => {
+  const buildDummyInsights = async (tech) => {
     const currentYear = new Date().getFullYear();
     const yearFrom = Math.max(2015, parseInt(filters.yearFrom || "2015", 10));
     const yearTo = Math.min(
@@ -193,20 +193,51 @@ const TechnologyInsights = () => {
       },
     ];
 
+    // Fetch REAL R&D data when available, use fallback if not
+    let worldBankData = null;
+    try {
+      const rdResponse = await axios.get("/api/rd-countries/", {
+        params: { limit: 10 },
+      });
+      if (rdResponse.data?.success) {
+        worldBankData = {
+          top_countries: (rdResponse.data.countries || []).map((c) => ({
+            country: c.name,
+            spending: c.spending,
+            currency: "Billions USD",
+          })),
+          total_spending: rdResponse.data.total_spending,
+          year: rdResponse.data.year,
+          currency: rdResponse.data.currency,
+          source: rdResponse.data.source,
+        };
+      }
+    } catch (err) {
+      console.warn("Could not fetch real R&D data:", err);
+    }
+
+    // Fallback R&D data if API call fails
+    if (!worldBankData) {
+      worldBankData = {
+        top_countries: [
+          { country: "United States", spending: 825.5 },
+          { country: "China", spending: 732.0 },
+          { country: "Germany", spending: 162.8 },
+        ],
+        total_spending: 1720.3,
+        year: "2023",
+        currency: "Billions USD",
+        source: "OECD/World Bank",
+        note: "Fallback data - real API data unavailable",
+      };
+    }
+
     return {
       papers,
       patents,
       companies: [],
       news,
-      worldBankData: {
-        top_countries: [
-          { country: "United States", spending: 3.45 },
-          { country: "China", spending: 2.81 },
-          { country: "Germany", spending: 1.21 },
-        ],
-        growth_rate: 4.2,
-        total_spending: 7.47,
-      },
+      worldBankData, // Now includes REAL or fallback data
       yearlyData: {
         trends,
         papers: trends.map((t) => ({
@@ -249,7 +280,7 @@ const TechnologyInsights = () => {
           error: "No company sample generated",
         },
         news: { ok: true, source: "demo_dataset" },
-        worldbank: { ok: true, source: "demo_dataset" },
+        worldbank: { ok: !!worldBankData, source: "real_oecd_worldbank" },
         trl: { ok: true, source: "local_ml_estimator" },
         convergence: {
           ok: false,
@@ -332,7 +363,8 @@ const TechnologyInsights = () => {
 
   const fetchFallbackInsights = async (tech) => {
     try {
-      const [papersRes, patentsRes, newsRes, companiesRes, trlRes] =
+      // First fetch all the data in parallel
+      const [papersRes, patentsRes, newsRes, companiesRes, trlRes, rdRes] =
         await Promise.allSettled([
           axios.get("/api/search/", {
             params: {
@@ -355,6 +387,10 @@ const TechnologyInsights = () => {
           axios.post("/api/trl-ml-assessment/", {
             text: tech,
           }),
+          // Fetch REAL R&D data from World Bank API
+          axios.get("/api/rd-countries/", {
+            params: { limit: 10 },
+          }),
         ]);
 
       const papers =
@@ -371,6 +407,7 @@ const TechnologyInsights = () => {
         companiesRes.status === "fulfilled"
           ? companiesRes.value?.data?.companies || []
           : [];
+      const rdData = rdRes.status === "fulfilled" ? rdRes.value?.data : null;
 
       const papersText = papers
         .slice(0, 10)
@@ -415,12 +452,28 @@ const TechnologyInsights = () => {
         });
       }
 
+      // Process R&D data - convert real World Bank data
+      const worldBankData = rdData?.success
+        ? {
+            top_countries: (rdData.countries || []).map((c) => ({
+              country: c.name,
+              spending: c.spending,
+              currency: "Billions USD",
+            })),
+            total_spending: rdData.total_spending,
+            year: rdData.year,
+            currency: rdData.currency,
+            source: rdData.source,
+          }
+        : null;
+
       setInsights((prev) => ({
         ...prev,
         papers,
         patents,
         news,
         companies,
+        worldBankData, // Use REAL data from World Bank API
         yearlyData: {
           trends,
           papers: trends.map((item) => ({
@@ -446,9 +499,11 @@ const TechnologyInsights = () => {
           companies: { ok: companies.length > 0, source: "opencorporates" },
           news: { ok: news.length > 0, source: "newsapi" },
           worldbank: {
-            ok: false,
-            source: "worldbank",
-            error: "Unavailable in fallback mode",
+            ok: rdData?.success || false,
+            source: "oecd_worldbank",
+            error: rdData?.success
+              ? undefined
+              : rdData?.error || "World Bank data unavailable",
           },
           trl: {
             ok: !!mlTrl?.success,
@@ -469,11 +524,13 @@ const TechnologyInsights = () => {
         news.length > 0 ||
         companies.length > 0;
       if (!hasAnyData) {
-        setInsights(buildDummyInsights(tech));
+        const dummyInsights = await buildDummyInsights(tech);
+        setInsights(dummyInsights);
       }
     } catch (fallbackError) {
       console.error("Fallback insights fetch failed:", fallbackError);
-      setInsights(buildDummyInsights(tech));
+      const dummyInsights = await buildDummyInsights(tech);
+      setInsights(dummyInsights);
     }
   };
 

@@ -6,12 +6,20 @@ import time
 from django.conf import settings
 
 HF_API_KEY = (
-    getattr(settings, 'HF_API_KEY', None)
+    getattr(settings, 'HFGP_API_KEY', None)
+    or os.getenv('HFGP_API_KEY')
+    or getattr(settings, 'HF_API_KEY', None)
     or os.getenv('HF_API_KEY')
     or getattr(settings, 'HUGGINGFACE_API_KEY', None)
     or os.getenv('HUGGINGFACE_API_KEY')
 )
-HF_CHAT_MODEL = getattr(settings, 'HF_CHAT_MODEL', None) or os.getenv('HF_CHAT_MODEL') or 'zai-org/GLM-5.1:cheapest'
+HF_CHAT_MODEL = (
+    getattr(settings, 'HFCHAT_MODEL', None)
+    or os.getenv('HFCHAT_MODEL')
+    or getattr(settings, 'HF_CHAT_MODEL', None)
+    or os.getenv('HF_CHAT_MODEL')
+    or 'zai-org/GLM-5.1:cheapest'
+)
 HF_CHAT_FALLBACK_MODELS = [
     'zai-org/GLM-5.1:cheapest',
     'openai/gpt-oss-20b:cheapest',
@@ -19,6 +27,9 @@ HF_CHAT_FALLBACK_MODELS = [
     'meta-llama/Llama-3.1-8B-Instruct:fastest',
 ]
 HF_CHAT_COMPLETIONS_URL = getattr(settings, 'HF_CHAT_COMPLETIONS_URL', None) or os.getenv('HF_CHAT_COMPLETIONS_URL') or 'https://router.huggingface.co/v1/chat/completions'
+GROQ_API_KEY = getattr(settings, 'GROQ_API_KEY', None) or os.getenv('GROQ_API_KEY')
+GROQ_CHAT_MODEL = getattr(settings, 'GROQ_CHAT_MODEL', None) or os.getenv('GROQ_CHAT_MODEL') or 'meta-llama/llama-4-scout-17b-16e-instruct'
+GROQ_CHAT_COMPLETIONS_URL = getattr(settings, 'GROQ_CHAT_COMPLETIONS_URL', None) or os.getenv('GROQ_CHAT_COMPLETIONS_URL') or 'https://api.groq.com/openai/v1/chat/completions'
 
 
 def _build_headers():
@@ -34,7 +45,7 @@ HEADERS = _build_headers()
 def _run_text_generation(prompt: str, temperature: float = 0.7, max_new_tokens: int = 200, model: str = None):
     """Run a text-generation call on HF Inference and return normalized text."""
     if not HF_API_KEY:
-        return {"success": False, "error": "Hugging Face authentication failed. Set HF_API_KEY (or HUGGINGFACE_API_KEY) in backend .env."}
+        return {"success": False, "error": "Hugging Face authentication failed. Set HF_API_KEY (or HFGP_API_KEY or HUGGINGFACE_API_KEY) in backend .env."}
 
     preferred_model = model or HF_CHAT_MODEL
     models_to_try = [preferred_model] + [m for m in HF_CHAT_FALLBACK_MODELS if m != preferred_model]
@@ -92,7 +103,7 @@ def _run_text_generation(prompt: str, temperature: float = 0.7, max_new_tokens: 
                 if response.status_code in (401, 403):
                     return {
                         "success": False,
-                        "error": "Hugging Face authentication failed. Set HF_API_KEY (or HUGGINGFACE_API_KEY) in backend .env.",
+                        "error": "Hugging Face authentication failed. Set HF_API_KEY (or HFGP_API_KEY or HUGGINGFACE_API_KEY) in backend .env.",
                     }
 
                 if response.status_code == 429:
@@ -137,8 +148,89 @@ def _run_text_generation(prompt: str, temperature: float = 0.7, max_new_tokens: 
     return {"success": False, "error": last_error}
 
 
+def _run_chat_generation(prompt: str, temperature: float = 0.7, max_new_tokens: int = 700, model: str = None):
+    """Run chatbot generation on Groq OpenAI-compatible endpoint."""
+    if not GROQ_API_KEY:
+        return {"success": False, "error": "Groq authentication failed. Set GROQ_API_KEY in backend .env."}
+
+    active_model = model or GROQ_CHAT_MODEL
+    payload = {
+        "model": active_model,
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "You are TechSentry AI, a senior defence technology intelligence analyst. "
+                    "Provide practical, structured, concise guidance with assumptions when uncertain. "
+                    "Avoid oversized markdown tables unless explicitly requested. "
+                    "Always end with a complete final sentence."
+                ),
+            },
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": temperature,
+        "max_tokens": max_new_tokens,
+        "stream": False,
+    }
+
+    try:
+        response = requests.post(
+            GROQ_CHAT_COMPLETIONS_URL,
+            headers={
+                "Authorization": f"Bearer {GROQ_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            timeout=60,
+        )
+
+        try:
+            data = response.json()
+        except Exception:
+            data = {"error": response.text[:300]}
+
+        if response.status_code == 200:
+            choices = data.get("choices", []) if isinstance(data, dict) else []
+            first_choice = choices[0] if choices and isinstance(choices[0], dict) else {}
+            message = first_choice.get("message", {}) if isinstance(first_choice, dict) else {}
+            generated_text = str(message.get("content", "")).strip()
+            finish_reason = first_choice.get("finish_reason") if isinstance(first_choice, dict) else None
+
+            if generated_text:
+                return {
+                    "success": True,
+                    "text": generated_text,
+                    "model": active_model,
+                    "finish_reason": finish_reason,
+                }
+
+            return {"success": False, "error": f"Empty response from Groq model {active_model}"}
+
+        if response.status_code in (401, 403):
+            return {
+                "success": False,
+                "error": "Groq authentication failed. Check GROQ_API_KEY in backend .env.",
+            }
+
+        if response.status_code == 429:
+            return {"success": False, "error": "Groq rate limit reached. Please retry shortly."}
+
+        if isinstance(data, dict):
+            nested_error = data.get("error")
+            if isinstance(nested_error, dict):
+                error_message = nested_error.get("message", f"Groq request failed with status {response.status_code}")
+            else:
+                error_message = data.get("message") or nested_error or f"Groq request failed with status {response.status_code}"
+        else:
+            error_message = f"Groq request failed with status {response.status_code}"
+
+        return {"success": False, "error": error_message}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 def chat_response(messages: list):
-    """Generate chatbot response using Hugging Face Inference API."""
+    """Generate chatbot response using Groq chat completions API."""
     try:
         user_message = ""
         if isinstance(messages, list):
@@ -150,14 +242,12 @@ def chat_response(messages: list):
         if not user_message:
             user_message = "Please provide guidance for defence technology analysis."
 
-        # Keep prompt shaping close to previous behavior while matching HF payload format.
+        # Keep prompt shaping close to previous behavior.
         prompt = (
-            "You are TechSentry AI, a senior defence technology intelligence analyst. "
-            "Provide practical, structured, concise guidance with assumptions when uncertain. "
-            "Avoid oversized markdown tables unless explicitly requested. Always end with a complete final sentence.\n\n"
-            f"User: {user_message}\nAssistant:"
+            f"User request:\n{user_message}\n\n"
+            "Answer with clear, actionable defence-technology analysis."
         )
-        result = _run_text_generation(prompt, temperature=0.7, max_new_tokens=700, model=HF_CHAT_MODEL)
+        result = _run_chat_generation(prompt, temperature=0.7, max_new_tokens=700, model=GROQ_CHAT_MODEL)
         if not result.get("success"):
             return {"success": False, "error": result.get("error", "Chat generation failed")}
 
@@ -173,11 +263,11 @@ def chat_response(messages: list):
                 "Continue exactly where this stopped. Do not repeat prior lines. "
                 "Close any unfinished bullets/sections and end with one complete concluding sentence."
             )
-            continuation = _run_text_generation(
+            continuation = _run_chat_generation(
                 continuation_prompt,
                 temperature=0.6,
                 max_new_tokens=300,
-                model=result.get("model") or HF_CHAT_MODEL,
+                model=result.get("model") or GROQ_CHAT_MODEL,
             )
             if not continuation.get("success") or not continuation.get("text"):
                 break
@@ -193,11 +283,11 @@ def chat_response(messages: list):
                 "Provide a complete, concise answer in 5-8 bullet points and a final concluding sentence. "
                 "Do not use markdown tables. Ensure the final line is a complete sentence ending with punctuation."
             )
-            recovery = _run_text_generation(
+            recovery = _run_chat_generation(
                 recovery_prompt,
                 temperature=0.5,
                 max_new_tokens=450,
-                model=result.get("model") or HF_CHAT_MODEL,
+                model=result.get("model") or GROQ_CHAT_MODEL,
             )
             if recovery.get("success") and recovery.get("text"):
                 recovered_text = recovery.get("text", "").strip()
@@ -209,7 +299,7 @@ def chat_response(messages: list):
         if _looks_incomplete(response_text, finish_reason):
             response_text = (
                 "I could not complete the full answer in this request due provider limits. "
-                "Please retry once, and if it persists, switch to a supported Hugging Face model/provider with available credits."
+                "Please retry once, and if it persists, switch to a supported Groq model/provider with available credits."
             )
 
         return {"success": True, "response": response_text}
@@ -328,11 +418,21 @@ Respond in JSON:
 
 def generate_summary(text):
     """Generate summary using Hugging Face API"""
+    cleaned_text = str(text or '').strip()
+
+    def _full_fallback_summary(source_text: str):
+        if not source_text:
+            return ''
+        sentences = [s.strip() for s in source_text.split('.') if s.strip()]
+        if len(sentences) >= 3:
+            return '. '.join(sentences[:3]) + '.'
+        return source_text if source_text.endswith('.') else f"{source_text}."
+
     if not HF_API_KEY:
         return {
             'success': False,
             'error': 'Hugging Face API key not configured',
-            'summary': f"This research discusses {text[:100]}... (Summary unavailable - API key not configured)"
+            'summary': _full_fallback_summary(cleaned_text)
         }
     
     try:
@@ -358,20 +458,30 @@ def generate_summary(text):
             return {
                 'success': False,
                 'error': f'API request failed with status {response.status_code}',
-                'summary': text[:200] + "..."  # Fallback to truncated text
+                'summary': _full_fallback_summary(cleaned_text)
             }
     except Exception as e:
         return {
             'success': False,
             'error': str(e),
-            'summary': text[:200] + "..."  # Fallback to truncated text
+            'summary': _full_fallback_summary(cleaned_text)
         }
 
 def generate_summary_fallback(text):
     """Fallback summary using a different model"""
+    cleaned_text = str(text or '').strip()
+
+    def _full_fallback_summary(source_text: str):
+        if not source_text:
+            return ''
+        sentences = [s.strip() for s in source_text.split('.') if s.strip()]
+        if len(sentences) >= 3:
+            return '. '.join(sentences[:3]) + '.'
+        return source_text if source_text.endswith('.') else f"{source_text}."
+
     try:
         API_URL = "https://api-inference.huggingface.co/models/t5-small"
-        payload = {"inputs": f"summarize: {text[:512]}"}  # T5 uses prefix
+        payload = {"inputs": f"summarize: {cleaned_text[:512]}"}  # T5 uses prefix
         response = requests.post(API_URL, headers=HEADERS, json=payload, timeout=30)
         
         if response.status_code == 200:
@@ -383,22 +493,15 @@ def generate_summary_fallback(text):
                 }
         
         # If all else fails, return a simple extractive summary
-        sentences = text.split('.')
-        if len(sentences) > 2:
-            return {
-                'success': True,
-                'summary': '. '.join(sentences[:2]) + '.'
-            }
-        else:
-            return {
-                'success': True,
-                'summary': text[:200] + "..."
-            }
+        return {
+            'success': True,
+            'summary': _full_fallback_summary(cleaned_text)
+        }
     except Exception as e:
         return {
             'success': False,
             'error': f'Fallback failed: {str(e)}',
-            'summary': text[:200] + "..."
+            'summary': _full_fallback_summary(cleaned_text)
         }
 
 def classify_trl_zeroshot(text):

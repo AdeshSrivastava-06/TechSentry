@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import toast from "react-hot-toast";
 import WordCloud from "../components/Charts/WordCloud";
+import { isPaperSaved, toggleSavedPaper } from "../utils/savedPapers";
 
 const FullPaperView = () => {
   const { paperId } = useParams();
@@ -48,6 +49,11 @@ const FullPaperView = () => {
       fetchPaperDetails();
     }
   }, [paperId]);
+
+  useEffect(() => {
+    if (!paper) return;
+    setIsSaved(isPaperSaved(paper.id || paperId));
+  }, [paper, paperId]);
 
   const createFallbackWordCloudData = (text) => {
     const source = cleanText(text || "").toLowerCase();
@@ -174,13 +180,26 @@ const FullPaperView = () => {
   };
 
   const generateSummary = async (abstract) => {
+    const fallbackSummary = cleanText(abstract || "").trim();
     try {
       const response = await axios.post("/api/generate-summary/", {
         text: cleanText(abstract),
       });
-      setSummary(response.data.summary || "");
+      const summaryText = cleanText(response?.data?.summary || "").trim();
+      if (summaryText) {
+        setSummary(summaryText);
+      } else if (fallbackSummary) {
+        setSummary(
+          `${fallbackSummary}${fallbackSummary.endsWith(".") ? "" : "."}`,
+        );
+      }
     } catch (error) {
       console.error("Error generating summary:", error);
+      if (fallbackSummary) {
+        setSummary(
+          `${fallbackSummary}${fallbackSummary.endsWith(".") ? "" : "."}`,
+        );
+      }
     }
   };
 
@@ -219,9 +238,24 @@ const FullPaperView = () => {
   };
 
   const handleSave = () => {
-    setIsSaved(!isSaved);
+    if (!paper) return;
+
+    const result = toggleSavedPaper({
+      paperId: paper.id || paperId,
+      title: paper.title || "Untitled Paper",
+      authors: (paper.authorships || [])
+        .map((a) => a?.author?.display_name)
+        .filter(Boolean),
+      publication_date:
+        paper.publication_date || paper.publication_year || null,
+      cited_by_count: paper.cited_by_count || 0,
+      source_url: paper.primary_location?.landing_page_url || "",
+      saved_at: new Date().toISOString(),
+    });
+
+    setIsSaved(result.saved);
     toast.success(
-      isSaved ? "Removed from saved papers" : "Paper saved successfully!",
+      result.saved ? "Paper saved successfully!" : "Removed from saved papers",
     );
   };
 

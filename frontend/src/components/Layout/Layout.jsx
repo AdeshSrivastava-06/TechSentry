@@ -1,18 +1,39 @@
-import React, { useState } from "react";
-import { Outlet } from "react-router-dom";
+import React, { useEffect, useRef, useState } from "react";
+import { Outlet, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Menu, X, Settings, LogOut, Shield, Bell, Search } from "lucide-react";
+import { Menu, Settings, LogOut } from "lucide-react";
 import Sidebar from "./Sidebar";
 import ChatBot from "../AI/ChatBot";
 import { useAuth } from "../../context/AuthContext";
 
 const Layout = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const userMenuRef = useRef(null);
+  const navigate = useNavigate();
   const { user, logout } = useAuth();
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(event.target)) {
+        setUserMenuOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
 
   const handleLogout = () => {
     logout();
     window.location.href = "/login";
+  };
+
+  const handleOpenSettings = () => {
+    setUserMenuOpen(false);
+    navigate("/profile");
   };
 
   return (
@@ -61,44 +82,26 @@ const Layout = () => {
                 >
                   <Menu className="w-5 h-5 text-gray-600" />
                 </button>
-
-                {/* Search Bar */}
-                <div className="hidden md:flex items-center gap-2 px-3 py-2 bg-gray-100/50 rounded-xl">
-                  <Search className="w-4 h-4 text-gray-400" />
-                  <input
-                    type="text"
-                    placeholder="Quick search..."
-                    className="bg-transparent border-none outline-none text-sm text-gray-700 placeholder-gray-400 w-64"
-                  />
-                </div>
               </div>
 
               {/* Right side items */}
               <div className="flex items-center gap-3">
-                {/* Notifications */}
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  className="relative p-2 rounded-lg hover:bg-gray-100 transition-colors"
-                >
-                  <Bell className="w-5 h-5 text-gray-600" />
-                  <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
-                </motion.button>
-
                 {/* Settings */}
                 <motion.button
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
+                  onClick={handleOpenSettings}
                   className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
                 >
                   <Settings className="w-5 h-5 text-gray-600" />
                 </motion.button>
 
                 {/* User Menu */}
-                <div className="relative group">
+                <div className="relative" ref={userMenuRef}>
                   <motion.button
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
+                    onClick={() => setUserMenuOpen((prev) => !prev)}
                     className="flex items-center gap-2 p-2 rounded-lg hover:bg-gray-100 transition-colors"
                   >
                     <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-blue-600 flex items-center justify-center">
@@ -112,28 +115,37 @@ const Layout = () => {
                   </motion.button>
 
                   {/* Dropdown Menu */}
-                  <motion.div
-                    initial={{ opacity: 0, y: -10 }}
-                    animate={{ opacity: 0, y: -10 }}
-                    whileHover={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.2 }}
-                    className="absolute right-0 top-full mt-2 w-48 bg-white/90 backdrop-blur-xl rounded-xl shadow-xl border border-white/20 opacity-0 invisible group-hover:opacity-100 group-hover:visible z-50"
-                  >
-                    <div className="p-2">
-                      <button className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-100 transition-colors text-left">
-                        <Settings className="w-4 h-4 text-gray-600" />
-                        <span className="text-sm text-gray-700">Settings</span>
-                      </button>
-                      <div className="my-1 border-t border-gray-200"></div>
-                      <button
-                        onClick={handleLogout}
-                        className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-red-50 transition-colors text-left"
+                  <AnimatePresence>
+                    {userMenuOpen && (
+                      <motion.div
+                        initial={{ opacity: 0, y: -10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -10 }}
+                        transition={{ duration: 0.2 }}
+                        className="absolute right-0 top-full mt-2 w-48 bg-white/90 backdrop-blur-xl rounded-xl shadow-xl border border-white/20 z-50"
                       >
-                        <LogOut className="w-4 h-4 text-red-600" />
-                        <span className="text-sm text-red-600">Logout</span>
-                      </button>
-                    </div>
-                  </motion.div>
+                        <div className="p-2">
+                          <button
+                            onClick={handleOpenSettings}
+                            className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-100 transition-colors text-left"
+                          >
+                            <Settings className="w-4 h-4 text-gray-600" />
+                            <span className="text-sm text-gray-700">
+                              Settings
+                            </span>
+                          </button>
+                          <div className="my-1 border-t border-gray-200"></div>
+                          <button
+                            onClick={handleLogout}
+                            className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-red-50 transition-colors text-left"
+                          >
+                            <LogOut className="w-4 h-4 text-red-600" />
+                            <span className="text-sm text-red-600">Logout</span>
+                          </button>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
               </div>
             </div>

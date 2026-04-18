@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Outlet } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Menu, X, Settings, LogOut, Shield, Bell, Search } from "lucide-react";
+import { Menu, X, Settings, LogOut, Shield, Bell } from "lucide-react";
 import Sidebar from "./Sidebar";
 import { useAuth } from "../../context/AuthContext";
 
@@ -60,16 +60,6 @@ const Layout = () => {
                 >
                   <Menu className="w-5 h-5 text-gray-600" />
                 </button>
-
-                {/* Search Bar */}
-                <div className="hidden md:flex items-center gap-2 px-3 py-2 bg-gray-100/50 rounded-xl">
-                  <Search className="w-4 h-4 text-gray-400" />
-                  <input
-                    type="text"
-                    placeholder="Quick search..."
-                    className="bg-transparent border-none outline-none text-sm text-gray-700 placeholder-gray-400 w-64"
-                  />
-                </div>
               </div>
 
               {/* Right side items */}

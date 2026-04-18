@@ -26,6 +26,7 @@ import {
   User,
 } from "lucide-react";
 import toast from "react-hot-toast";
+import { logActivity } from "../utils/activityLog";
 
 const SearchPage = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -50,6 +51,7 @@ const SearchPage = () => {
     sort_by: searchParams.get("sort_by") || "relevance",
   });
   const [showFilters, setShowFilters] = useState(false);
+  const [isTypingPaperKeywords, setIsTypingPaperKeywords] = useState(false);
 
   const {
     data: searchResults,
@@ -85,15 +87,85 @@ const SearchPage = () => {
     return () => clearTimeout(timer);
   }, [query, activeTab]);
 
-  const handleSearch = (nextAppliedFilters = appliedFilters) => {
-    if (query.trim()) {
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (isTypingPaperKeywords) {
+        return;
+      }
+
+      const nextAppliedFilters = {
+        ...filters,
+        paper_keywords: filters.paper_keywords.trim(),
+      };
+
+      setAppliedFilters((prev) => {
+        if (
+          prev.year_from === nextAppliedFilters.year_from &&
+          prev.year_to === nextAppliedFilters.year_to &&
+          prev.paper_keywords === nextAppliedFilters.paper_keywords &&
+          prev.sort_by === nextAppliedFilters.sort_by
+        ) {
+          return prev;
+        }
+        return nextAppliedFilters;
+      });
+
+      const normalizedQuery = query.trim();
+      if (normalizedQuery) {
+        setSearchParams({
+          q: normalizedQuery,
+          type: activeTab,
+          year_from: nextAppliedFilters.year_from,
+          year_to: nextAppliedFilters.year_to,
+          sort_by: nextAppliedFilters.sort_by,
+          paper_keywords: nextAppliedFilters.paper_keywords,
+        });
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [filters, query, activeTab, setSearchParams, isTypingPaperKeywords]);
+
+  const applyPaperKeywordsFilter = () => {
+    const nextAppliedFilters = {
+      ...filters,
+      paper_keywords: filters.paper_keywords.trim(),
+    };
+
+    setAppliedFilters((prev) => {
+      if (prev.paper_keywords === nextAppliedFilters.paper_keywords) {
+        return prev;
+      }
+      return nextAppliedFilters;
+    });
+
+    const normalizedQuery = query.trim();
+    if (normalizedQuery) {
       setSearchParams({
-        q: query,
+        q: normalizedQuery,
         type: activeTab,
         year_from: nextAppliedFilters.year_from,
         year_to: nextAppliedFilters.year_to,
         sort_by: nextAppliedFilters.sort_by,
         paper_keywords: nextAppliedFilters.paper_keywords,
+      });
+    }
+  };
+
+  const handleSearch = (nextAppliedFilters = appliedFilters) => {
+    const normalizedQuery = query.trim();
+    if (normalizedQuery) {
+      setSearchParams({
+        q: normalizedQuery,
+        type: activeTab,
+        year_from: nextAppliedFilters.year_from,
+        year_to: nextAppliedFilters.year_to,
+        sort_by: nextAppliedFilters.sort_by,
+        paper_keywords: nextAppliedFilters.paper_keywords,
+      });
+      logActivity({
+        type: "search",
+        description: `Searched for "${normalizedQuery}"`,
       });
       refetch();
     }
@@ -105,7 +177,18 @@ const SearchPage = () => {
       paper_keywords: filters.paper_keywords.trim(),
     };
     setAppliedFilters(nextAppliedFilters);
-    handleSearch(nextAppliedFilters);
+
+    const normalizedQuery = query.trim();
+    if (normalizedQuery) {
+      setSearchParams({
+        q: normalizedQuery,
+        type: activeTab,
+        year_from: nextAppliedFilters.year_from,
+        year_to: nextAppliedFilters.year_to,
+        sort_by: nextAppliedFilters.sort_by,
+        paper_keywords: nextAppliedFilters.paper_keywords,
+      });
+    }
   };
 
   const PaperCard = ({ paper }) => (
@@ -113,7 +196,16 @@ const SearchPage = () => {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       className="bg-white/70 backdrop-blur-xl rounded-xl shadow-lg border border-white/20 p-6 mb-4 hover:shadow-xl transition-all duration-300 cursor-pointer"
-      onClick={() => navigate(`/full-paper/${paper.id}`)}
+      onClick={() => {
+        const title = String(paper.title || "paper").trim();
+        const shortTitle =
+          title.length > 70 ? `${title.slice(0, 67)}...` : title;
+        logActivity({
+          type: "paper",
+          description: `Viewed paper on ${shortTitle}`,
+        });
+        navigate(`/full-paper/${paper.id}`);
+      }}
     >
       <div className="flex items-start justify-between mb-3">
         <h3 className="text-lg font-semibold text-gray-900 flex-1 mr-4 line-clamp-2">
@@ -278,7 +370,14 @@ const SearchPage = () => {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       className="bg-white/70 backdrop-blur-xl rounded-xl shadow-lg border border-white/20 p-6 mb-4 hover:shadow-xl transition-all duration-300"
-      onClick={() => navigate(`/company/${company.id}`)}
+      onClick={() => {
+        const targetUrl =
+          company.source_url ||
+          `https://www.google.com/search?q=${encodeURIComponent(
+            company.companyLabel?.value || company.name || "company",
+          )}`;
+        window.open(targetUrl, "_blank", "noopener,noreferrer");
+      }}
     >
       <div className="flex items-start justify-between mb-3">
         <h3 className="text-lg font-semibold text-gray-900 flex-1 mr-4">
@@ -306,6 +405,12 @@ const SearchPage = () => {
         <p className="text-gray-700 text-sm line-clamp-3">
           {cleanText(company.description)}
         </p>
+      )}
+
+      {company.source && (
+        <div className="mt-3 text-xs text-gray-500">
+          Source: {String(company.source).toUpperCase()}
+        </div>
       )}
     </motion.div>
   );
@@ -505,6 +610,18 @@ const SearchPage = () => {
                           paper_keywords: e.target.value,
                         }))
                       }
+                      onFocus={() => setIsTypingPaperKeywords(true)}
+                      onBlur={() => {
+                        setIsTypingPaperKeywords(false);
+                        applyPaperKeywordsFilter();
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          setIsTypingPaperKeywords(false);
+                          applyPaperKeywordsFilter();
+                        }
+                      }}
                       placeholder="e.g. machine learning, sensor"
                       className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
                     />

@@ -87,11 +87,71 @@ export default function ChatBot() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [panelSize, setPanelSize] = useState({ width: 410, height: 530 });
+  const [isResizing, setIsResizing] = useState(false);
   const bottomRef = useRef(null);
+  const resizeStateRef = useRef(null);
+
+  const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  useEffect(() => {
+    if (!isResizing) return;
+
+    const handleMouseMove = (event) => {
+      if (!resizeStateRef.current) return;
+
+      const { startX, startY, startWidth, startHeight } =
+        resizeStateRef.current;
+
+      // Panel is anchored to bottom-right, so dragging left/up should enlarge it.
+      const deltaX = startX - event.clientX;
+      const deltaY = startY - event.clientY;
+
+      const minWidth = 360;
+      const minHeight = 460;
+      const maxWidth = Math.max(minWidth, window.innerWidth - 40);
+      const maxHeight = Math.max(minHeight, window.innerHeight - 120);
+
+      setPanelSize({
+        width: clamp(startWidth + deltaX, minWidth, maxWidth),
+        height: clamp(startHeight + deltaY, minHeight, maxHeight),
+      });
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+      resizeStateRef.current = null;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+    document.body.style.cursor = "nwse-resize";
+    document.body.style.userSelect = "none";
+
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+  }, [isResizing]);
+
+  const handleResizeStart = (event) => {
+    event.preventDefault();
+    resizeStateRef.current = {
+      startX: event.clientX,
+      startY: event.clientY,
+      startWidth: panelSize.width,
+      startHeight: panelSize.height,
+    };
+    setIsResizing(true);
+  };
 
   const sendMessage = async () => {
     if (!input.trim() || loading) return;
@@ -102,17 +162,33 @@ export default function ChatBot() {
     setLoading(true);
     setError("");
     try {
-      const res = await axios.post("/api/chat/", {
-        messages: updatedMessages.filter((m) => m.role !== "system"),
-      });
+      const res = await axios.post(
+        "/api/chat/",
+        {
+          messages: updatedMessages.filter((m) => m.role !== "system"),
+        },
+        {
+          timeout: 45000,
+        },
+      );
+      const assistantText =
+        res?.data?.response ||
+        res?.data?.message ||
+        "I could not generate a response. Please try again.";
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: res.data.response },
+        { role: "assistant", content: assistantText },
       ]);
+
+      if (res?.data?.error) {
+        setError(`Service notice: ${res.data.error}`);
+      }
     } catch (err) {
       const errMsg =
-        err.response?.data?.error ||
-        "Connection failed. Check HF_API_KEY (or HUGGINGFACE_API_KEY) in .env";
+        err.code === "ECONNABORTED"
+          ? "Request timed out. Please try again."
+          : err.response?.data?.error ||
+            "Connection failed. Check backend server and HF_API_KEY (or HUGGINGFACE_API_KEY).";
       setError(errMsg);
     } finally {
       setLoading(false);
@@ -199,14 +275,15 @@ export default function ChatBot() {
             position: "fixed",
             bottom: "90px",
             right: "24px",
-            width: "380px",
-            height: "500px",
+            width: `${panelSize.width}px`,
+            height: `${panelSize.height}px`,
             background: "#0D1B2A",
             border: "1px solid #2E86AB",
             borderRadius: "12px",
             display: "flex",
             flexDirection: "column",
             zIndex: 999,
+            overflow: "hidden",
             boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
           }}
         >
@@ -322,13 +399,34 @@ export default function ChatBot() {
                 borderRadius: "6px",
                 padding: "8px 14px",
                 color: "white",
-                cursor: "pointer",
+                cursor: loading || !input.trim() ? "not-allowed" : "pointer",
+                opacity: loading || !input.trim() ? 0.65 : 1,
                 fontSize: "13px",
               }}
             >
               Send
             </button>
           </div>
+
+          <div
+            onMouseDown={handleResizeStart}
+            title="Resize chat window"
+            style={{
+              position: "absolute",
+              right: 0,
+              bottom: 0,
+              width: "24px",
+              height: "24px",
+              cursor: "nwse-resize",
+              display: "flex",
+              alignItems: "flex-end",
+              justifyContent: "flex-end",
+              padding: "4px",
+              background:
+                "linear-gradient(135deg, transparent 0%, transparent 45%, #2E86AB 45%, #2E86AB 55%, transparent 55%, transparent 100%)",
+              borderBottomRightRadius: "12px",
+            }}
+          />
         </div>
       )}
     </>

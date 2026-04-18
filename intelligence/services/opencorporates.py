@@ -31,6 +31,23 @@ def search_companies(query, page=1, num=10):
             company_number = raw.get("company_number", "")
             jurisdiction_code = raw.get("jurisdiction_code", "")
             company_name = raw.get("name", "")
+            company_url = raw.get("opencorporates_url") or ""
+            if not company_url and jurisdiction_code and company_number:
+                company_url = (
+                    f"https://opencorporates.com/companies/"
+                    f"{jurisdiction_code}/{company_number}"
+                )
+
+            industry_codes = raw.get("industry_codes") or []
+            if isinstance(industry_codes, list):
+                industry_text = ", ".join(
+                    str(code.get("description") or code.get("code") or "").strip()
+                    for code in industry_codes
+                    if isinstance(code, dict)
+                ).strip(", ")
+            else:
+                industry_text = str(industry_codes or "").strip()
+
             company = {
                 "id": f"{jurisdiction_code}/{company_number}" if company_number else company_name,
                 "name": company_name,
@@ -40,12 +57,13 @@ def search_companies(query, page=1, num=10):
                 "countryLabel": {
                     "value": jurisdiction_code.upper() if jurisdiction_code else ""
                 },
-                "description": raw.get("industry_codes", "") or raw.get("current_status", ""),
+                "description": industry_text or raw.get("current_status", ""),
                 "incorporation_date": raw.get("incorporation_date", ""),
                 "company_status": raw.get("company_type", ""),
                 "registered_address": raw.get("registered_address_in_full", ""),
                 "officers": raw.get("officers", []),
                 "current_status": raw.get("current_status", ""),
+                "source_url": company_url,
                 "source": "opencorporates",
             }
             companies.append(company)
