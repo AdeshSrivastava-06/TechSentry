@@ -10,6 +10,7 @@ urlpatterns = [
     # AI Analysis
     path('generate-wordcloud/', views.generate_wordcloud, name='generate_wordcloud'),
     path('generate-summary/', views.generate_summary, name='generate_summary'),
+    path('patent-text/', views.patent_text, name='patent_text'),
     path('sentiment-analysis/', views.sentiment_analysis, name='sentiment_analysis'),
     path('technology-convergence/', views.technology_convergence, name='technology_convergence'),
     path('trl-ml-assessment/', views.trl_ml_assessment, name='trl_ml_assessment'),

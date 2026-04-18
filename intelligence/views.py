@@ -23,7 +23,12 @@ from .services.openalex import search_papers, get_papers_per_year, get_top_paper
 from .services.openalex import search_papers, get_paper_details
 from .services.crossref import search_papers as crossref_search_papers, get_paper_details as crossref_paper_details
 from .services.opencorporates import search_companies as opencorporates_search_companies
-from .services.patents import search_patents, get_patents_per_year, get_top_patent_assignees
+from .services.patents import (
+    search_patents,
+    get_patents_per_year,
+    get_top_patent_assignees,
+    fetch_patent_full_text,
+)
 from .services.newsapi import search_news, get_news_volume, get_news_sentiment_analysis
 from .services.wikidata import (
     search_companies as wikidata_search_companies,
@@ -655,6 +660,29 @@ def generate_summary(request):
             },
             status=200,
         )
+
+
+@api_view(['POST'])
+@permission_classes([permissions.AllowAny])
+def patent_text(request):
+    """Fetch fuller patent text from a patent source URL for high-quality summaries."""
+    try:
+        patent_url = request.data.get('url', '')
+        result = fetch_patent_full_text(patent_url)
+
+        if result.get('success'):
+            return Response({"text": result.get('text', '')})
+
+        return Response(
+            {
+                "text": result.get('text', ''),
+                "error": result.get('error', 'Failed to fetch patent text'),
+            },
+            status=200,
+        )
+    except Exception as e:
+        logger.error(f"Patent text fetch error: {e}")
+        return Response({"text": "", "error": str(e)}, status=200)
 
 @api_view(['GET'])
 @permission_classes([permissions.AllowAny])

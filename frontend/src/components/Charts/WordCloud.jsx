@@ -17,9 +17,10 @@ const WordCloud = ({ words, title = "Technology Keywords" }) => {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     const processedWords = words
-      .map((word) => ({
+      .map((word, index) => ({
         text: word.text || word.word || "",
         value: Number(word.value || word.frequency || word.size || 1),
+        seed: index,
       }))
       .filter((word) => word.text && word.text.length > 0)
       .sort((a, b) => b.value - a.value)
@@ -41,18 +42,16 @@ const WordCloud = ({ words, title = "Technology Keywords" }) => {
       return 12 + boosted * 64;
     };
 
-    // Generate colors using professional theme
+    // Balanced professional palette with high contrast on light backgrounds.
     const colors = [
-      "#2E86AB", // Blue
-      "#C9A84C", // Gold
-      "#1B4B82", // Dark Blue
-      "#0D1B2A", // Dark
-      "#E0EAF4", // Light
-      "#FF6B35", // Orange
-      "#4ECDC4", // Teal
-      "#F7B267", // Peach
-      "#6C5B7B", // Purple
-      "#88D8B0", // Mint
+      "#1D4ED8",
+      "#0F766E",
+      "#9333EA",
+      "#B45309",
+      "#BE123C",
+      "#0F172A",
+      "#0C4A6E",
+      "#3F6212",
     ];
 
     const centerX = canvas.width / 2;
@@ -70,8 +69,9 @@ const WordCloud = ({ words, title = "Technology Keywords" }) => {
 
     processedWords.forEach((word, index) => {
       const fontSize = getFontSize(word.value, index);
+      const color = colors[index % colors.length];
       const rotation =
-        Math.random() < 0.25 ? (Math.random() < 0.5 ? -0.18 : 0.18) : 0;
+        Math.random() < 0.28 ? (Math.random() < 0.5 ? -0.2 : 0.2) : 0;
       ctx.font = `700 ${fontSize}px 'Rajdhani', 'IBM Plex Sans', sans-serif`;
 
       const textWidth = ctx.measureText(word.text).width;
@@ -121,12 +121,12 @@ const WordCloud = ({ words, title = "Technology Keywords" }) => {
       ctx.rotate(rotation);
 
       ctx.font = `700 ${fontSize}px 'Rajdhani', 'IBM Plex Sans', sans-serif`;
-      ctx.fillStyle = word.color;
+      ctx.fillStyle = color;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
 
-      ctx.shadowColor = "rgba(0, 0, 0, 0.2)";
-      ctx.shadowBlur = 3;
+      ctx.shadowColor = "rgba(15, 23, 42, 0.22)";
+      ctx.shadowBlur = 2;
       ctx.shadowOffsetX = 1;
       ctx.shadowOffsetY = 1;
 
@@ -149,7 +149,7 @@ const WordCloud = ({ words, title = "Technology Keywords" }) => {
       <h3 className="text-lg font-semibold text-gray-900 mb-4">{title}</h3>
       <div
         ref={containerRef}
-        className="relative bg-gradient-to-br from-gray-50 to-blue-50 rounded-lg p-4"
+        className="relative bg-[radial-gradient(circle_at_20%_20%,rgba(99,102,241,0.14),transparent_36%),radial-gradient(circle_at_80%_85%,rgba(20,184,166,0.13),transparent_34%),linear-gradient(180deg,#f8fafc_0%,#eef4ff_100%)] rounded-lg p-4"
         style={{ height: "350px" }}
       >
         <canvas

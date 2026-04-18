@@ -420,88 +420,192 @@ def generate_summary(text):
     """Generate summary using Hugging Face API"""
     cleaned_text = str(text or '').strip()
 
-    def _full_fallback_summary(source_text: str):
+    def _extractive_long_summary(source_text: str):
         if not source_text:
             return ''
-        sentences = [s.strip() for s in source_text.split('.') if s.strip()]
-        if len(sentences) >= 3:
-            return '. '.join(sentences[:3]) + '.'
-        return source_text if source_text.endswith('.') else f"{source_text}."
+
+        normalized = re.sub(r'\s+', ' ', source_text).strip()
+        if not normalized:
+            return ''
+
+        units = [s.strip() for s in re.split(r'(?<=[.!?;])\s+|\s+-\s+', normalized) if s.strip()]
+        if len(units) < 8:
+            units = [
+                s.strip()
+                for s in re.split(r',\s+|\s+which\s+|\s+including\s+|\s+wherein\s+', normalized, flags=re.IGNORECASE)
+                if s.strip()
+            ]
+
+        deduped = []
+        seen = set()
+        for unit in units:
+            if len(unit) < 20:
+                continue
+            key = re.sub(r'[^a-z0-9\s]', '', unit.lower()).strip()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            deduped.append(unit)
+
+        selected = []
+        total_chars = 0
+        for unit in deduped:
+            selected.append(unit)
+            total_chars += len(unit)
+            if len(selected) >= 10 and total_chars >= 900:
+                break
+            if len(selected) >= 12 or total_chars >= 2400:
+                break
+
+        if not selected:
+            fallback = normalized[:1200].strip()
+            return fallback if fallback.endswith('.') else f"{fallback}."
+
+        summary = '. '.join(u.rstrip('. ') for u in selected).strip()
+        return summary if summary.endswith('.') else f"{summary}."
+
+    def _is_too_short(summary_text: str):
+        text_value = str(summary_text or '').strip()
+        if not text_value:
+            return True
+        words = [w for w in re.split(r'\s+', text_value) if w]
+        return len(words) < 120 or len(text_value) < 700
 
     if not HF_API_KEY:
         return {
             'success': False,
             'error': 'Hugging Face API key not configured',
-            'summary': _full_fallback_summary(cleaned_text)
+            'summary': _extractive_long_summary(cleaned_text)
         }
-    
+
     try:
-        # Try a different model that should be available
-        API_URL = "https://api-inference.huggingface.co/models/sshleifer/distilbart-cnn-12-6"
-        payload = {"inputs": text[:1024]}  # Limit text length
-        response = requests.post(API_URL, headers=HEADERS, json=payload, timeout=30)
-        
-        if response.status_code == 200:
-            result = response.json()
-            if isinstance(result, list) and len(result) > 0 and 'summary_text' in result[0]:
+        summary_prompt = (
+            "You are a patent analyst. Write a detailed, clear summary of the patent text below. "
+            "Requirements: 8-10 sentences, around 160-260 words, no bullet points, no markdown, "
+            "focus on problem, method, key technical mechanism, and practical impact. "
+            "Do not end abruptly.\n\n"
+            f"Patent text:\n{cleaned_text[:7000]}"
+        )
+
+        generation = _run_text_generation(
+            summary_prompt,
+            temperature=0.35,
+            max_new_tokens=650,
+            model=HF_CHAT_MODEL,
+        )
+
+        if generation.get('success'):
+            candidate = str(generation.get('text', '') or '').strip()
+            if _is_too_short(candidate):
+                retry_prompt = (
+                    "Rewrite as a longer patent summary with 9-10 complete sentences and at least 180 words. "
+                    "No bullets. Keep technical details concrete and readable.\n\n"
+                    f"Patent text:\n{cleaned_text[:7000]}"
+                )
+                retry = _run_text_generation(
+                    retry_prompt,
+                    temperature=0.3,
+                    max_new_tokens=700,
+                    model=generation.get('model') or HF_CHAT_MODEL,
+                )
+                retry_text = str(retry.get('text', '') or '').strip() if retry.get('success') else ''
+                if retry_text and not _is_too_short(retry_text):
+                    candidate = retry_text
+
+            if not _is_too_short(candidate):
                 return {
                     'success': True,
-                    'summary': result[0]['summary_text']
+                    'summary': candidate if candidate.endswith('.') else f"{candidate}."
                 }
-            else:
-                # Try fallback model
-                return generate_summary_fallback(text)
-        elif response.status_code == 410:
-            # Model not found, try fallback
-            return generate_summary_fallback(text)
-        else:
-            return {
-                'success': False,
-                'error': f'API request failed with status {response.status_code}',
-                'summary': _full_fallback_summary(cleaned_text)
-            }
+
+        fallback_result = generate_summary_fallback(cleaned_text)
+        fallback_summary = str(fallback_result.get('summary', '') or '').strip()
+        if _is_too_short(fallback_summary):
+            fallback_summary = _extractive_long_summary(cleaned_text)
+
+        return {
+            'success': bool(fallback_summary),
+            'summary': fallback_summary,
+            'error': generation.get('error', fallback_result.get('error', 'Summary generation fallback used'))
+        }
     except Exception as e:
         return {
             'success': False,
             'error': str(e),
-            'summary': _full_fallback_summary(cleaned_text)
+            'summary': _extractive_long_summary(cleaned_text)
         }
 
 def generate_summary_fallback(text):
     """Fallback summary using a different model"""
     cleaned_text = str(text or '').strip()
 
-    def _full_fallback_summary(source_text: str):
+    def _extractive_long_summary(source_text: str):
         if not source_text:
             return ''
-        sentences = [s.strip() for s in source_text.split('.') if s.strip()]
-        if len(sentences) >= 3:
-            return '. '.join(sentences[:3]) + '.'
-        return source_text if source_text.endswith('.') else f"{source_text}."
+
+        normalized = re.sub(r'\s+', ' ', source_text).strip()
+        if not normalized:
+            return ''
+
+        units = [s.strip() for s in re.split(r'(?<=[.!?;])\s+|\s+-\s+', normalized) if s.strip()]
+        if len(units) < 8:
+            units = [
+                s.strip()
+                for s in re.split(r',\s+|\s+which\s+|\s+including\s+|\s+wherein\s+', normalized, flags=re.IGNORECASE)
+                if s.strip()
+            ]
+
+        selected = []
+        total_chars = 0
+        for unit in units:
+            if len(unit) < 20:
+                continue
+            selected.append(unit.rstrip('. '))
+            total_chars += len(unit)
+            if len(selected) >= 10 and total_chars >= 900:
+                break
+            if len(selected) >= 12 or total_chars >= 2400:
+                break
+
+        if not selected:
+            fallback = normalized[:1200].strip()
+            return fallback if fallback.endswith('.') else f"{fallback}."
+
+        summary = '. '.join(selected).strip()
+        return summary if summary.endswith('.') else f"{summary}."
 
     try:
         API_URL = "https://api-inference.huggingface.co/models/t5-small"
-        payload = {"inputs": f"summarize: {cleaned_text[:512]}"}  # T5 uses prefix
+        payload = {
+            "inputs": f"summarize in 8 to 10 sentences with technical details: {cleaned_text[:2200]}"
+        }
         response = requests.post(API_URL, headers=HEADERS, json=payload, timeout=30)
         
         if response.status_code == 200:
             result = response.json()
             if isinstance(result, list) and len(result) > 0 and 'generated_text' in result[0]:
+                generated = str(result[0]['generated_text'] or '').strip()
+                if len(generated) >= 300:
+                    return {
+                        'success': True,
+                        'summary': generated if generated.endswith('.') else f"{generated}."
+                    }
+
                 return {
                     'success': True,
-                    'summary': result[0]['generated_text']
+                    'summary': _extractive_long_summary(cleaned_text)
                 }
         
-        # If all else fails, return a simple extractive summary
+        # If all else fails, return a long extractive summary
         return {
             'success': True,
-            'summary': _full_fallback_summary(cleaned_text)
+            'summary': _extractive_long_summary(cleaned_text)
         }
     except Exception as e:
         return {
             'success': False,
             'error': f'Fallback failed: {str(e)}',
-            'summary': _full_fallback_summary(cleaned_text)
+            'summary': _extractive_long_summary(cleaned_text)
         }
 
 def classify_trl_zeroshot(text):

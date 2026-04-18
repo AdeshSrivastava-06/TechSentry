@@ -7,6 +7,7 @@ import Dashboard from "./pages/DashboardNew";
 import Search from "./pages/SearchFull";
 import PaperDetail from "./pages/PaperDetail";
 import FullPaperView from "./pages/FullPaperView";
+import PatentInsights from "./pages/PatentInsights";
 import TechnologyInsights from "./pages/TechnologyInsights";
 import Reports from "./pages/Reports";
 import Watchlist from "./pages/WatchlistNew";
@@ -40,6 +41,7 @@ function App() {
         <Route path="search" element={<Search />} />
         <Route path="paper/:paperId" element={<PaperDetail />} />
         <Route path="full-paper/:paperId" element={<FullPaperView />} />
+        <Route path="patent-insights/:patentId" element={<PatentInsights />} />
         <Route path="insights" element={<TechnologyInsights />} />
         <Route path="reports" element={<Reports />} />
         <Route path="watchlist" element={<Watchlist />} />

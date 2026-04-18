@@ -1,6 +1,8 @@
 import requests
 import os
 import json
+import html
+import re
 from datetime import datetime
 from django.conf import settings
 
@@ -12,6 +14,85 @@ def _build_google_patent_url(patent_number):
     if not num:
         return ""
     return f"https://patents.google.com/patent/{num}"
+
+
+def fetch_patent_full_text(patent_url: str):
+    """Fetch richer patent text from public patent pages for downstream summarization."""
+    url = str(patent_url or "").strip()
+    if not url:
+        return {"success": False, "error": "No patent URL provided", "text": ""}
+
+    try:
+        response = requests.get(
+            url,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+            },
+            timeout=25,
+        )
+        response.raise_for_status()
+        body = response.text or ""
+
+        extracted = []
+
+        # Prefer explicit page descriptions first.
+        meta_patterns = [
+            r'<meta[^>]+property=["\']og:description["\'][^>]+content=["\']([^"\']+)["\']',
+            r'<meta[^>]+name=["\']description["\'][^>]+content=["\']([^"\']+)["\']',
+        ]
+        for pattern in meta_patterns:
+            for match in re.findall(pattern, body, flags=re.IGNORECASE):
+                text = html.unescape(str(match or "")).strip()
+                if text and len(text) > 80:
+                    extracted.append(text)
+
+        # Try JSON-LD blocks for more context.
+        json_ld_blocks = re.findall(
+            r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>([\s\S]*?)</script>',
+            body,
+            flags=re.IGNORECASE,
+        )
+        for block in json_ld_blocks:
+            block = (block or "").strip()
+            if not block:
+                continue
+            try:
+                parsed = json.loads(block)
+                candidates = []
+                if isinstance(parsed, dict):
+                    candidates = [parsed.get("description"), parsed.get("abstract")]
+                elif isinstance(parsed, list):
+                    for item in parsed:
+                        if isinstance(item, dict):
+                            candidates.extend([item.get("description"), item.get("abstract")])
+
+                for candidate in candidates:
+                    text = html.unescape(str(candidate or "")).strip()
+                    if text and len(text) > 80:
+                        extracted.append(text)
+            except Exception:
+                continue
+
+        # Deduplicate while preserving order.
+        deduped = []
+        seen = set()
+        for chunk in extracted:
+            key = re.sub(r"\s+", " ", chunk).strip().lower()
+            if key and key not in seen:
+                seen.add(key)
+                deduped.append(chunk)
+
+        text = " ".join(deduped).strip()
+        if not text:
+            return {
+                "success": False,
+                "error": "No detailed patent text found on source page",
+                "text": "",
+            }
+
+        return {"success": True, "text": re.sub(r"\s+", " ", text).strip()}
+    except Exception as e:
+        return {"success": False, "error": str(e), "text": ""}
 
 
 def _search_patents_patentsview(query, num=10):

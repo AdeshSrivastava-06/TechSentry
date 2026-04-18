@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import axios from "axios";
-import PaperModal from "../components/Modals/PaperModal";
 import {
   getYear,
   cleanText,
@@ -33,7 +32,6 @@ const SearchPage = () => {
   const navigate = useNavigate();
   const [query, setQuery] = useState(searchParams.get("q") || "");
   const [activeTab, setActiveTab] = useState(searchParams.get("type") || "all");
-  const [selectedPaper, setSelectedPaper] = useState(null);
   const [filters, setFilters] = useState({
     year_from: searchParams.get("year_from") || "2000",
     year_to: searchParams.get("year_to") || "2026",
@@ -300,18 +298,39 @@ const SearchPage = () => {
         </p>
       )}
 
-      {patent.url && (
-        <a
-          href={patent.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 text-indigo-600 hover:text-indigo-700 text-sm font-medium transition-colors mt-3"
-          onClick={(e) => e.stopPropagation()}
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          className="inline-flex items-center gap-1 text-indigo-600 hover:text-indigo-700 text-sm font-medium transition-colors"
+          onClick={(e) => {
+            e.stopPropagation();
+            const patentKey = encodeURIComponent(
+              String(
+                patent.id || patent.patent_number || patent.title || "patent",
+              ),
+            );
+            navigate(`/patent-insights/${patentKey}`, {
+              state: { patent },
+            });
+          }}
         >
-          <ExternalLink className="w-3 h-3" />
-          View Patent
-        </a>
-      )}
+          <FileText className="w-3 h-3" />
+          AI Summary & Word Cloud
+        </button>
+
+        {patent.url && (
+          <a
+            href={patent.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-indigo-600 hover:text-indigo-700 text-sm font-medium transition-colors"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <ExternalLink className="w-3 h-3" />
+            View Patent
+          </a>
+        )}
+      </div>
     </motion.div>
   );
 
@@ -708,16 +727,6 @@ const SearchPage = () => {
           </div>
         )}
       </div>
-
-      {/* Paper Modal */}
-      <AnimatePresence>
-        {selectedPaper && (
-          <PaperModal
-            paper={selectedPaper}
-            onClose={() => setSelectedPaper(null)}
-          />
-        )}
-      </AnimatePresence>
     </div>
   );
 };
