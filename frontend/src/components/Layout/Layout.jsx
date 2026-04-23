@@ -71,7 +71,7 @@ const Layout = () => {
       {/* Main content */}
       <div className="lg:ml-64">
         {/* Top Navigation */}
-        <header className="bg-white/80 backdrop-blur-xl border-b border-white/20 shadow-sm">
+        <header className="relative z-50 bg-white/80 backdrop-blur-xl border-b border-white/20 shadow-sm overflow-visible">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex items-center justify-between h-16">
               {/* Mobile menu button */}
@@ -97,7 +97,7 @@ const Layout = () => {
                 </motion.button>
 
                 {/* User Menu */}
-                <div className="relative" ref={userMenuRef}>
+                <div className="relative z-50" ref={userMenuRef}>
                   <motion.button
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
@@ -122,7 +122,7 @@ const Layout = () => {
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: -10 }}
                         transition={{ duration: 0.2 }}
-                        className="absolute right-0 top-full mt-2 w-48 bg-white/90 backdrop-blur-xl rounded-xl shadow-xl border border-white/20 z-50"
+                        className="absolute right-0 top-full mt-2 w-48 bg-white/95 backdrop-blur-xl rounded-xl shadow-xl border border-white/20 z-[100]"
                       >
                         <div className="p-2">
                           <button

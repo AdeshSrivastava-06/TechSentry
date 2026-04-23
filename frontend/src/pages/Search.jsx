@@ -5,7 +5,6 @@ import { useQuery } from "@tanstack/react-query";
 import axios from "axios";
 import {
   Search,
-  Filter,
   Calendar,
   Globe,
   TrendingUp,
@@ -334,14 +333,6 @@ const SearchPage = () => {
                 className="block w-full pl-12 pr-32 py-4 bg-white/70 backdrop-blur-sm border border-gray-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all duration-200 text-gray-900 placeholder-gray-500 shadow-lg"
               />
               <div className="absolute inset-y-0 right-0 flex items-center pr-2">
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={() => setShowFilters(!showFilters)}
-                  className="p-2 rounded-xl hover:bg-gray-100 transition-colors mr-2"
-                >
-                  <Filter className="h-5 w-5 text-gray-600" />
-                </motion.button>
                 <motion.button
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}

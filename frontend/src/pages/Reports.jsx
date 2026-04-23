@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import axios from "axios";
@@ -47,6 +47,18 @@ const Reports = () => {
       focus_areas: true,
     },
   });
+
+  useEffect(() => {
+    const shouldLockScroll = Boolean(showGenerateModal || selectedReport);
+    if (!shouldLockScroll) return undefined;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [showGenerateModal, selectedReport]);
 
   const queryClient = useQueryClient();
 
@@ -533,11 +545,7 @@ const Reports = () => {
   };
 
   const ReportCard = ({ report }) => (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="tech-card-hover"
-    >
+    <div className="tech-card-hover">
       <div className="flex items-start justify-between">
         <div className="flex-1">
           <div className="flex items-center space-x-2 mb-2">
@@ -612,7 +620,7 @@ const Reports = () => {
           </div>
         </div>
       </div>
-    </motion.div>
+    </div>
   );
 
   return (

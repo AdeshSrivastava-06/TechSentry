@@ -287,9 +287,7 @@ const Watchlist = () => {
 
       <div className="mt-4 pt-4 border-t border-gray-200">
         <div className="flex items-center justify-between">
-          <span className="text-sm text-gray-600">
-            Last updated {formatReadableDate(item.last_updated)}
-          </span>
+          <span className="text-sm text-gray-600">Last updated 5 days ago</span>
           <motion.button
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
